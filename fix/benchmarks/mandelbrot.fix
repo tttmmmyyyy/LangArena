@@ -39,9 +39,9 @@ _render : I64 -> I64 -> Array U8 -> Array U8;
 _render = |w, h, bitmap| (
     let header = Helper::bytes_of("P4\n" + w.to_string + " " + h.to_string + "\n");
     let bitmap = header.to_iter.fold(bitmap, |byte, bitmap| bitmap.push_back(byte));
-    let (bitmap, _, _) = Iterator::range(0, h).fold((bitmap, 0_U8, 0), |y, state|
+    let (bitmap, _, _) = range(0, h).fold((bitmap, 0_U8, 0), |y, state|
         let ci = 2.0 * y.f64 / h.f64 - 1.0;
-        Iterator::range(0, w).fold(state, |x, (bitmap, byte, bit_count)|
+        range(0, w).fold(state, |x, (bitmap, byte, bit_count)|
             let cr = 2.0 * x.f64 / w.f64 - 1.5;
             let byte = byte.shift_left(1_U8) + if _is_inside(cr, ci) { 1_U8 } else { 0_U8 };
             let bit_count = bit_count + 1;
@@ -63,7 +63,7 @@ _render = |w, h, bitmap| (
 _make_bench : I64 -> I64 -> Array U8 -> Bench;
 _make_bench = |w, h, bitmap| Bench {
     run_iters : |iterations| (
-        let bitmap = Iterator::range(0, iterations).fold(bitmap, |_, bitmap| _render(w, h, bitmap));
+        let bitmap = range(0, iterations).fold(bitmap, |_, bitmap| _render(w, h, bitmap));
         _make_bench(w, h, bitmap)
     ),
     checksum : |_| Helper::checksum_bytes(bitmap)
@@ -72,5 +72,5 @@ _make_bench = |w, h, bitmap| Bench {
 // The benchmark, as the runner's registry holds it.
 entry : (String, MakeBench);
 entry = (_name, |config, _|
-    _make_bench(config.config_i64(_name, "w"), config.config_i64(_name, "h"), Array::empty(0))
+    _make_bench(config.config_i64(_name, "w"), config.config_i64(_name, "h"), empty(0))
 );

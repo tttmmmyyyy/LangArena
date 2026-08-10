@@ -15,15 +15,15 @@ _name : String = "Etc::Sieve";
 // * `limit` - The largest number considered.
 _sieve : I64 -> I64;
 _sieve = |limit| (
-    let primes = Array::fill(limit + 1, 1_U8).set(0, 0_U8).set(1, 0_U8);
+    let primes = fill(limit + 1, 1_U8).set(0, 0_U8).set(1, 0_U8);
     let sqrt_limit = limit.f64.sqrt.i64;
-    let primes = Iterator::range(2, sqrt_limit + 1).fold(primes, |p, primes|
+    let primes = range(2, sqrt_limit + 1).fold(primes, |p, primes|
         if primes.@(p) != 1_U8 { primes };
-        Iterator::range_step(p * p, limit + 1, p).fold(primes, |multiple, primes|
+        range_step(p * p, limit + 1, p).fold(primes, |multiple, primes|
             primes.set(multiple, 0_U8)
         )
     );
-    let (last_prime, count) = Iterator::range_step(3, limit + 1, 2).fold((2, 1), |n, (last_prime, count)|
+    let (last_prime, count) = range_step(3, limit + 1, 2).fold((2, 1), |n, (last_prime, count)|
         if primes.@(n) != 1_U8 { (last_prime, count) };
         (n, count + 1)
     );
@@ -38,7 +38,7 @@ _sieve = |limit| (
 _make_bench : I64 -> U32 -> Bench;
 _make_bench = |limit, checksum| Bench {
     run_iters : |iterations| (
-        let checksum = Iterator::range(0, iterations).fold(checksum, |_, checksum|
+        let checksum = range(0, iterations).fold(checksum, |_, checksum|
             checksum + _sieve(limit).u32
         );
         _make_bench(limit, checksum)

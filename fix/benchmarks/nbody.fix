@@ -85,10 +85,10 @@ _offset_momentum = |bodies| (
 _energy : Array Planet -> F64;
 _energy = |bodies| (
     let n = bodies.@size;
-    Iterator::range(0, n).fold(0.0, |i, e|
+    range(0, n).fold(0.0, |i, e|
         let b = bodies.@(i);
         let e = e + 0.5 * b.@mass * (b.@vx * b.@vx + b.@vy * b.@vy + b.@vz * b.@vz);
-        Iterator::range(i + 1, n).fold(e, |j, e|
+        range(i + 1, n).fold(e, |j, e|
             let b2 = bodies.@(j);
             let dx = b.@x - b2.@x;
             let dy = b.@y - b2.@y;
@@ -106,9 +106,9 @@ _energy = |bodies| (
 _advance : Array Planet -> Array Planet;
 _advance = |bodies| (
     let n = bodies.@size;
-    Iterator::range(0, n).fold(bodies, |i, bodies|
+    range(0, n).fold(bodies, |i, bodies|
         let b = bodies.@(i);
-        let (b, bodies) = Iterator::range(i + 1, n).fold((b, bodies), |j, (b, bodies)|
+        let (b, bodies) = range(i + 1, n).fold((b, bodies), |j, (b, bodies)|
             let b2 = bodies.@(j);
             let dx = b.@x - b2.@x;
             let dy = b.@y - b2.@y;
@@ -139,8 +139,8 @@ _advance = |bodies| (
 _make_bench : F64 -> Array Planet -> Bench;
 _make_bench = |initial_energy, bodies| Bench {
     run_iters : |iterations| (
-        let bodies = Iterator::range(0, iterations).fold(bodies, |_, bodies|
-            Iterator::range(0, _steps_per_iteration).fold(bodies, |_, bodies| _advance(bodies))
+        let bodies = range(0, iterations).fold(bodies, |_, bodies|
+            range(0, _steps_per_iteration).fold(bodies, |_, bodies| _advance(bodies))
         );
         _make_bench(initial_energy, bodies)
     ),
