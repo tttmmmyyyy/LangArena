@@ -4,15 +4,12 @@ module LangArena.Benchmarks.Nbody;
 
 import Std;
 import LangArena.Bench;
+import Math;
 import LangArena.Helper;
 
 _name : String = "CLBG::Nbody";
 
-// The nearest double to pi, which is what the other implementations take from their standard
-// libraries.
-_pi : F64 = 3.141592653589793;
-
-_solar_mass : F64 = 4.0 * _pi * _pi;
+_solar_mass : F64 = 4.0 * Math::pi64 * Math::pi64;
 _days_per_year : F64 = 365.24;
 
 // The time step of one advance, in days.
@@ -96,7 +93,7 @@ _energy = |bodies| (
             let dx = b.@x - b2.@x;
             let dy = b.@y - b2.@y;
             let dz = b.@z - b2.@z;
-            e - b.@mass * b2.@mass / Helper::sqrt(dx * dx + dy * dy + dz * dz)
+            e - b.@mass * b2.@mass / Math::sqrt(dx * dx + dy * dy + dz * dz)
         )
     )
 );
@@ -116,7 +113,7 @@ _advance = |bodies| (
             let dx = b.@x - b2.@x;
             let dy = b.@y - b2.@y;
             let dz = b.@z - b2.@z;
-            let distance = Helper::sqrt(dx * dx + dy * dy + dz * dz);
+            let distance = Math::sqrt(dx * dx + dy * dy + dz * dz);
             let mag = _dt / (distance * distance * distance);
             let b_mass_mag = b.@mass * mag;
             let b2_mass_mag = b2.@mass * mag;

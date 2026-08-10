@@ -134,13 +134,6 @@ config_str = |name, field, config| (
     value.as_some.as_string
 );
 
-// Square root, from the C library.
-//
-// # Parameters
-// * `x` - The value to take the root of.
-sqrt : F64 -> F64;
-sqrt = |x| FFI_CALL[F64 sqrt(F64), x];
-
 // Maps the ASCII upper-case letters of a string to lower case, which is how the benchmark name
 // filter compares names.
 //
