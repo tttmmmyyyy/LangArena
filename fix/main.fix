@@ -36,7 +36,7 @@ main : IO ();
 main = (
     let (path, filter) = *get_args.map(|args| _parse_args(args.get_sub(1, args.@size)));
     println("start: " + (*Bench::unix_millis).to_string);;
-    let config = *Helper::read_config(path).try(|err| eprintln(err);; exit(1));
+    let config = *Helper::read_config(path).try(exit_with_msg(1));
     let ok = *Bench::run_all(_registry, filter, config);
     if ok { pure() } else { exit(1) }
 );
