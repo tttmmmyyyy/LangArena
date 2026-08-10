@@ -71,7 +71,9 @@ run_one = |name, make, config| (
     let (bench, seconds) = *_timed(|_| (bench.@run_iters)(iterations));
     let actual = (bench.@checksum)(());
     let ok = actual == expected;
-    if ok { print("OK ") } else {
+    if ok {
+        print("OK ")
+    } else {
         print("ERR[actual=" + actual.to_string + ", expected=" + expected.to_string + "] ")
     };;
     println("in " + seconds.to_string_precision(3_U8) + "s");;
