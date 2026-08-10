@@ -32,11 +32,20 @@ _parse_args = |args| (
     (_default_config_path, some(head))
 );
 
+// The token the harness rewrites in this file to force a rebuild, so that it can measure how long
+// an incremental compilation takes. Writing it out is what keeps it in the compiled program, and a
+// failure to write is ignored the way the other implementations ignore it.
+_touch_recompile_marker : IO ();
+_touch_recompile_marker = (
+    write_file_string("/tmp/recompile_marker", "RECOMPILE_MARKER_0").try(|_| pure())
+);
+
 main : IO ();
 main = (
     let (path, filter) = *get_args.map(|args| _parse_args(args.get_sub(1, args.@size)));
     println("start: " + (*Bench::unix_millis).to_string);;
     let config = *Helper::read_config(path).try(exit_with_msg(1));
     let ok = *Bench::run_all(_registry, filter, config);
+    _touch_recompile_marker;;
     if ok { pure() } else { exit(1) }
 );
