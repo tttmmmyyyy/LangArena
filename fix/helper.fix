@@ -18,7 +18,7 @@ _lcg_seed : I64 = 42;
 // The pseudo-random generator. It is threaded through the input generation of a benchmark rather
 // than kept in a global, which the timed part of a benchmark never needs since no benchmark draws a
 // random number while it is being measured.
-type Rng = unbox struct { last : I64 };
+type Rng = struct { last : I64 };
 
 // A generator at the seed every implementation starts from.
 make_rng : Rng;
@@ -87,7 +87,7 @@ checksum_float : F64 -> U32;
 checksum_float = |value| checksum_str(value.to_string_precision(7_U8));
 
 // The benchmark parameters read from the configuration file, in the order the file lists them.
-type Config = unbox struct { entries : Array (String, Json) };
+type Config = struct { entries : Array (String, Json) };
 
 // Reads the configuration file, which holds one JSON object per benchmark.
 //
