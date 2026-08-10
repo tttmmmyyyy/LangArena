@@ -55,11 +55,7 @@ next_float = |max, rng| (
 // * `bytes` - The bytes to hash.
 checksum_bytes : Array U8 -> U32;
 checksum_bytes = |bytes| (
-    let n = bytes.@size;
-    loop((0, 5381_U32), |(i, h)|
-        if i == n { break $ h };
-        continue $ (i + 1, h * 33_U32 + bytes.@(i).u32)
-    )
+    Iterator::range(0, bytes.@size).fold(5381_U32, |i, h| h * 33_U32 + bytes.@(i).u32)
 );
 
 // The bytes of a string, without the null terminator `String` keeps behind them.
