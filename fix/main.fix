@@ -33,11 +33,10 @@ _parse_args = |args| (
 );
 
 // The token the harness rewrites in this file to force a rebuild, so that it can measure how long
-// an incremental compilation takes. Writing it out is what keeps it in the compiled program, and a
-// failure to write is ignored the way the other implementations ignore it.
+// an incremental compilation takes. Writing it out is what keeps it in the compiled program.
 _touch_recompile_marker : IO ();
 _touch_recompile_marker = (
-    write_file_string("/tmp/recompile_marker", "RECOMPILE_MARKER_0").try(|_| pure())
+    write_file_string("/tmp/recompile_marker", "RECOMPILE_MARKER_0").try(exit_with_msg(1))
 );
 
 main : IO ();
