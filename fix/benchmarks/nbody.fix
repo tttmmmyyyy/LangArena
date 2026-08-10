@@ -9,7 +9,7 @@ import LangArena.Helper;
 
 _name : String = "CLBG::Nbody";
 
-_solar_mass : F64 = 4.0 * Math::pi64 * Math::pi64;
+_solar_mass : F64 = 4.0 * pi64 * pi64;
 _days_per_year : F64 = 365.24;
 
 // The time step of one advance, in days.

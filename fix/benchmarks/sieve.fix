@@ -38,9 +38,7 @@ _sieve = |limit| (
 _make_bench : I64 -> U32 -> Bench;
 _make_bench = |limit, checksum| Bench {
     run_iters : |iterations| (
-        let checksum = range(0, iterations).fold(checksum, |_, checksum|
-            checksum + _sieve(limit).u32
-        );
+        let checksum = checksum + range(0, iterations).map(|_| _sieve(limit).u32).sum;
         _make_bench(limit, checksum)
     ),
     checksum : |_| checksum
