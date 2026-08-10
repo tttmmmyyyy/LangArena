@@ -8,6 +8,7 @@ files = [
     "helper.fix",
     "bench.fix",
     "benchmarks/mandelbrot.fix",
+    "benchmarks/nbody.fix",
     "benchmarks/sieve.fix",
 ]
 objects = ["target/clock.o"]

@@ -1,0 +1,155 @@
+// Advances the outer planets of the solar system under mutual gravity, the n-body simulation of the
+// Computer Language Benchmarks Game.
+module LangArena.Benchmarks.Nbody;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "CLBG::Nbody";
+
+// The nearest double to pi, which is what the other implementations take from their standard
+// libraries.
+_pi : F64 = 3.141592653589793;
+
+_solar_mass : F64 = 4.0 * _pi * _pi;
+_days_per_year : F64 = 365.24;
+
+// The time step of one advance, in days.
+_dt : F64 = 0.01;
+
+// The number of advances one iteration of the benchmark performs.
+_steps_per_iteration : I64 = 1000;
+
+type Planet = struct {
+    x : F64, y : F64, z : F64,
+    vx : F64, vy : F64, vz : F64,
+    mass : F64
+};
+
+// Builds a planet from the orbital elements as they are tabulated: velocities per day and mass in
+// solar masses.
+//
+// # Parameters
+// * `x`, `y`, `z` - Position.
+// * `vx`, `vy`, `vz` - Velocity per day.
+// * `mass` - Mass in solar masses.
+_planet : F64 -> F64 -> F64 -> F64 -> F64 -> F64 -> F64 -> Planet;
+_planet = |x, y, z, vx, vy, vz, mass| Planet {
+    x : x, y : y, z : z,
+    vx : vx * _days_per_year, vy : vy * _days_per_year, vz : vz * _days_per_year,
+    mass : mass * _solar_mass
+};
+
+// The sun and the four outer planets.
+_initial_bodies : Array Planet;
+_initial_bodies = [
+    _planet(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0),
+    _planet(
+        4.84143144246472090e+00, -1.16032004402742839e+00, -1.03622044471123109e-01,
+        1.66007664274403694e-03, 7.69901118419740425e-03, -6.90460016972063023e-05,
+        9.54791938424326609e-04
+    ),
+    _planet(
+        8.34336671824457987e+00, 4.12479856412430479e+00, -4.03523417114321381e-01,
+        -2.76742510726862411e-03, 4.99852801234917238e-03, 2.30417297573763929e-05,
+        2.85885980666130812e-04
+    ),
+    _planet(
+        1.28943695621391310e+01, -1.51111514016986312e+01, -2.23307578892655734e-01,
+        2.96460137564761618e-03, 2.37847173959480950e-03, -2.96589568540237556e-05,
+        4.36624404335156298e-05
+    ),
+    _planet(
+        1.53796971148509165e+01, -2.59193146099879641e+01, 1.79258772950371181e-01,
+        2.68067772490389322e-03, 1.62824170038242295e-03, -9.51592254519715870e-05,
+        5.15138902046611451e-05
+    )
+];
+
+// Cancels the total momentum of the system by putting the opposite of it on the sun, which keeps the
+// system from drifting.
+//
+// # Parameters
+// * `bodies` - The bodies of the system.
+_offset_momentum : Array Planet -> Array Planet;
+_offset_momentum = |bodies| (
+    let (px, py, pz) = bodies.to_iter.fold((0.0, 0.0, 0.0), |b, (px, py, pz)|
+        (px + b.@vx * b.@mass, py + b.@vy * b.@mass, pz + b.@vz * b.@mass)
+    );
+    let sun = bodies.@(0);
+    bodies.set(0, sun.set_vx(-px / _solar_mass).set_vy(-py / _solar_mass).set_vz(-pz / _solar_mass))
+);
+
+// The total energy of the system, kinetic minus the gravitational potential of every pair.
+//
+// # Parameters
+// * `bodies` - The bodies of the system.
+_energy : Array Planet -> F64;
+_energy = |bodies| (
+    let n = bodies.@size;
+    Iterator::range(0, n).fold(0.0, |i, e|
+        let b = bodies.@(i);
+        let e = e + 0.5 * b.@mass * (b.@vx * b.@vx + b.@vy * b.@vy + b.@vz * b.@vz);
+        Iterator::range(i + 1, n).fold(e, |j, e|
+            let b2 = bodies.@(j);
+            let dx = b.@x - b2.@x;
+            let dy = b.@y - b2.@y;
+            let dz = b.@z - b2.@z;
+            e - b.@mass * b2.@mass / Helper::sqrt(dx * dx + dy * dy + dz * dz)
+        )
+    )
+);
+
+// Advances the system by one time step: every pair exchanges an impulse, then each body moves along
+// its new velocity.
+//
+// # Parameters
+// * `bodies` - The bodies of the system.
+_advance : Array Planet -> Array Planet;
+_advance = |bodies| (
+    let n = bodies.@size;
+    Iterator::range(0, n).fold(bodies, |i, bodies|
+        let b = bodies.@(i);
+        let (b, bodies) = Iterator::range(i + 1, n).fold((b, bodies), |j, (b, bodies)|
+            let b2 = bodies.@(j);
+            let dx = b.@x - b2.@x;
+            let dy = b.@y - b2.@y;
+            let dz = b.@z - b2.@z;
+            let distance = Helper::sqrt(dx * dx + dy * dy + dz * dz);
+            let mag = _dt / (distance * distance * distance);
+            let b_mass_mag = b.@mass * mag;
+            let b2_mass_mag = b2.@mass * mag;
+            let b = b.set_vx(b.@vx - dx * b2_mass_mag)
+                     .set_vy(b.@vy - dy * b2_mass_mag)
+                     .set_vz(b.@vz - dz * b2_mass_mag);
+            let b2 = b2.set_vx(b2.@vx + dx * b_mass_mag)
+                       .set_vy(b2.@vy + dy * b_mass_mag)
+                       .set_vz(b2.@vz + dz * b_mass_mag);
+            (b, bodies.set(j, b2))
+        );
+        bodies.set(i, b.set_x(b.@x + _dt * b.@vx)
+                       .set_y(b.@y + _dt * b.@vy)
+                       .set_z(b.@z + _dt * b.@vz))
+    )
+);
+
+_make_bench : F64 -> Array Planet -> Bench;
+_make_bench = |initial_energy, bodies| Bench {
+    run_iters : |iterations| (
+        let bodies = Iterator::range(0, iterations).fold(bodies, |_, bodies|
+            Iterator::range(0, _steps_per_iteration).fold(bodies, |_, bodies| _advance(bodies))
+        );
+        _make_bench(initial_energy, bodies)
+    ),
+    checksum : |_| (
+        Helper::checksum_float(initial_energy).shift_left(5_U32).bit_and(Helper::checksum_float(_energy(bodies)))
+    )
+};
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |_, _|
+    let bodies = _offset_momentum(_initial_bodies);
+    _make_bench(_energy(bodies), bodies)
+);

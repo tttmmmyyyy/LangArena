@@ -4,6 +4,7 @@ import Std;
 import LangArena.Bench;
 import LangArena.Helper;
 import LangArena.Benchmarks.Mandelbrot;
+import LangArena.Benchmarks.Nbody;
 import LangArena.Benchmarks.Sieve;
 
 // Every benchmark this implementation provides. The runner looks names up here as it walks the
@@ -11,6 +12,7 @@ import LangArena.Benchmarks.Sieve;
 _registry : Array (String, MakeBench);
 _registry = [
     Mandelbrot::entry,
+    Nbody::entry,
     Sieve::entry
 ];
 
