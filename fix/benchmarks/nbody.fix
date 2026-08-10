@@ -93,7 +93,7 @@ _energy = |bodies| (
             let dx = b.@x - b2.@x;
             let dy = b.@y - b2.@y;
             let dz = b.@z - b2.@z;
-            e - b.@mass * b2.@mass / Math::sqrt(dx * dx + dy * dy + dz * dz)
+            e - b.@mass * b2.@mass / (dx * dx + dy * dy + dz * dz).sqrt
         )
     )
 );
@@ -113,7 +113,7 @@ _advance = |bodies| (
             let dx = b.@x - b2.@x;
             let dy = b.@y - b2.@y;
             let dz = b.@z - b2.@z;
-            let distance = Math::sqrt(dx * dx + dy * dy + dz * dz);
+            let distance = (dx * dx + dy * dy + dz * dz).sqrt;
             let mag = _dt / (distance * distance * distance);
             let b_mass_mag = b.@mass * mag;
             let b2_mass_mag = b2.@mass * mag;

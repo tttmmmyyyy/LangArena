@@ -16,7 +16,7 @@ _name : String = "Etc::Sieve";
 _sieve : I64 -> I64;
 _sieve = |limit| (
     let primes = Array::fill(limit + 1, 1_U8).set(0, 0_U8).set(1, 0_U8);
-    let sqrt_limit = Math::sqrt(limit.f64).i64;
+    let sqrt_limit = limit.f64.sqrt.i64;
     let primes = Iterator::range(2, sqrt_limit + 1).fold(primes, |p, primes|
         if primes.@(p) != 1_U8 { primes };
         Iterator::range_step(p * p, limit + 1, p).fold(primes, |multiple, primes|
