@@ -63,7 +63,7 @@ _render = |w, h, bitmap| (
 _make_bench : I64 -> I64 -> Array U8 -> Bench;
 _make_bench = |w, h, bitmap| Bench {
     run_iters : |iterations| (
-        let bitmap = range(0, iterations).fold(bitmap, |_, bitmap| _render(w, h, bitmap));
+        let bitmap = range(0, iterations).fold(bitmap, |_| _render(w, h));
         _make_bench(w, h, bitmap)
     ),
     checksum : |_| Helper::checksum_bytes(bitmap)

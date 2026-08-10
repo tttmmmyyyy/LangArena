@@ -140,7 +140,7 @@ _make_bench : F64 -> Array Planet -> Bench;
 _make_bench = |initial_energy, bodies| Bench {
     run_iters : |iterations| (
         let bodies = range(0, iterations).fold(bodies, |_, bodies|
-            range(0, _steps_per_iteration).fold(bodies, |_, bodies| _advance(bodies))
+            range(0, _steps_per_iteration).fold(bodies, |_| _advance)
         );
         _make_bench(initial_energy, bodies)
     ),
