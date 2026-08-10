@@ -11,9 +11,12 @@ files = [
     "benchmarks/nbody.fix",
     "benchmarks/sieve.fix",
 ]
-objects = ["target/clock.o"]
 dynamic_links = ["m"]
-preliminary_commands = [["make", "target/clock.o"]]
+
+[[dependencies]]
+name = "time"
+version = "2.0.0"
+git = { url = "https://github.com/tttmmmyyyy/fixlang-time.git" }
 
 [[dependencies]]
 name = "minilib-json"

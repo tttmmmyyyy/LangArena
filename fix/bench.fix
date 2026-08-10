@@ -2,6 +2,7 @@
 module LangArena.Bench;
 
 import Std;
+import Time;
 import LangArena.Helper;
 
 // A benchmark whose input has already been built.
@@ -18,13 +19,12 @@ type Bench = box struct {
 // unused by benchmarks that need no random input.
 type MakeBench = Config -> Rng -> Bench;
 
-// Seconds on a monotonic clock, from the shim in `clock.c`.
-_monotonic_sec : IO F64;
-_monotonic_sec = FFI_CALL_IO[F64 langarena_monotonic_sec()];
-
-// Milliseconds since the Unix epoch, from the shim in `clock.c`.
+// Milliseconds since the Unix epoch, for the `start:` line the runner reads.
 unix_millis : IO I64;
-unix_millis = FFI_CALL_IO[I64 langarena_unix_millis()];
+unix_millis = (
+    let now = *Time::get_now;
+    pure $ now.@sec * 1000 + (now.@nanosec.i64 / 1000000)
+);
 
 // Evaluates a value while measuring the wall-clock time it takes.
 //
@@ -35,10 +35,10 @@ unix_millis = FFI_CALL_IO[I64 langarena_unix_millis()];
 // * `thunk` - The value to evaluate.
 _timed : Lazy a -> IO (a, F64);
 _timed = |thunk| (
-    let start = *_monotonic_sec;
+    let start = *Time::get_now_monotonic;
     let value = *(IO::from_runner $ |ios| (ios, thunk()));
-    let end = *_monotonic_sec;
-    pure $ (value, end - start)
+    let end = *Time::get_now_monotonic;
+    pure $ (value, end.f64 - start.f64)
 );
 
 // The number of iterations a benchmark is warmed up for. The measured run continues from the state
