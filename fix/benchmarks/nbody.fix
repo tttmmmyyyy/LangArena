@@ -131,6 +131,11 @@ _advance = |bodies| (
     )
 );
 
+// The benchmark holding the energy the system started with and its current state.
+//
+// # Parameters
+// * `initial_energy` - The energy of the system before any advance.
+// * `bodies` - The bodies of the system as the advances so far left them.
 _make_bench : F64 -> Array Planet -> Bench;
 _make_bench = |initial_energy, bodies| Bench {
     run_iters : |iterations| (

@@ -54,6 +54,12 @@ _render = |w, h, bitmap| (
     bitmap
 );
 
+// The benchmark holding the image dimensions and the bitmap rendered so far.
+//
+// # Parameters
+// * `w` - Width of the image in pixels.
+// * `h` - Height of the image in pixels.
+// * `bitmap` - The renderings of the iterations run so far.
 _make_bench : I64 -> I64 -> Array U8 -> Bench;
 _make_bench = |w, h, bitmap| Bench {
     run_iters : |iterations| (

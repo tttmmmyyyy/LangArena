@@ -30,6 +30,11 @@ _sieve = |limit| (
     last_prime + count
 );
 
+// The benchmark holding the sieve's limit and the checksum accumulated so far.
+//
+// # Parameters
+// * `limit` - The largest number the sieve considers.
+// * `checksum` - The checksum of the iterations run so far.
 _make_bench : I64 -> U32 -> Bench;
 _make_bench = |limit, checksum| Bench {
     run_iters : |iterations| (

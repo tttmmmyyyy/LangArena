@@ -24,6 +24,10 @@ type Rng = struct { last : I64 };
 make_rng : Rng;
 make_rng = Rng { last : _lcg_seed };
 
+// Advances the generator by one step of the linear congruential recurrence.
+//
+// # Parameters
+// * `rng` - The generator to advance.
 _advance : Rng -> Rng;
 _advance = |rng| Rng { last : (rng.@last * _lcg_multiplier + _lcg_increment) % _lcg_modulus };
 
@@ -101,6 +105,11 @@ read_config = |path| (
 names : Config -> Array String;
 names = |config| config.@entries.map(@0);
 
+// The configuration object of a benchmark, or none when the configuration does not list it.
+//
+// # Parameters
+// * `name` - Name of the benchmark.
+// * `config` - The configuration to read.
 _entry : String -> Config -> Option Json;
 _entry = |name, config| (
     let entries = config.@entries;
