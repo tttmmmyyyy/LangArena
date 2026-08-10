@@ -1,0 +1,108 @@
+// The benchmark interface and the loop that runs one benchmark and reports its time.
+module LangArena.Bench;
+
+import Std;
+import LangArena.Helper;
+
+// A benchmark whose input has already been built.
+//
+// `run_iters` advances the benchmark by the given number of iterations and returns it in its new
+// state. `checksum` reports the result of all the work done so far; it is a function rather than a
+// field so that computing it never falls inside the timed region.
+type Bench = box struct {
+    run_iters : I64 -> Bench,
+    checksum : () -> U32
+};
+
+// Builds a benchmark from the configuration and a fresh generator. The generator is returned
+// unused by benchmarks that need no random input.
+type MakeBench = Config -> Rng -> Bench;
+
+// Seconds on a monotonic clock, from the shim in `clock.c`.
+_monotonic_sec : IO F64;
+_monotonic_sec = FFI_CALL_IO[F64 langarena_monotonic_sec()];
+
+// Milliseconds since the Unix epoch, from the shim in `clock.c`.
+unix_millis : IO I64;
+unix_millis = FFI_CALL_IO[I64 langarena_unix_millis()];
+
+// Evaluates a value while measuring the wall-clock time it takes.
+//
+// The value is wrapped into an I/O action so that its evaluation is sequenced between the two
+// readings of the clock rather than left to float outside them.
+//
+// # Parameters
+// * `thunk` - The value to evaluate.
+_timed : Lazy a -> IO (a, F64);
+_timed = |thunk| (
+    let start = *_monotonic_sec;
+    let value = *(IO::from_runner $ |ios| (ios, thunk()));
+    let end = *_monotonic_sec;
+    pure $ (value, end - start)
+);
+
+// The number of iterations a benchmark is warmed up for. The measured run continues from the state
+// the warm-up leaves behind, so this count is part of what the expected checksum covers.
+//
+// # Parameters
+// * `name` - Name of the benchmark.
+// * `config` - The configuration to read.
+_warmup_iterations : String -> Config -> I64;
+_warmup_iterations = |name, config| (
+    let configured = config.config_i64(name, "warmup_iterations");
+    if configured > 0 { configured };
+    max(1, (config.config_i64(name, "iterations").f64 * 0.2).i64)
+);
+
+// Runs one benchmark and prints the line the harness reads:
+// `<name>: OK in <seconds>s`, or an `ERR[...]` in place of the `OK` when the checksum disagrees.
+//
+// # Parameters
+// * `name` - Name of the benchmark.
+// * `make` - Builder of the benchmark.
+// * `config` - The configuration to read.
+run_one : String -> MakeBench -> Config -> IO (Bool, F64);
+run_one = |name, make, config| (
+    print(name + ": ");;
+    let iterations = config.config_i64(name, "iterations");
+    let expected = config.config_i64(name, "checksum").u32;
+    let bench = make(config, Helper::make_rng);
+    let bench = (bench.@run_iters)(_warmup_iterations(name, config));
+    let (bench, seconds) = *_timed(|_| (bench.@run_iters)(iterations));
+    let actual = (bench.@checksum)(());
+    let ok = actual == expected;
+    if ok { print("OK ") } else {
+        print("ERR[actual=" + actual.to_string + ", expected=" + expected.to_string + "] ")
+    };;
+    println("in " + seconds.to_string_precision(3_U8) + "s");;
+    pure $ (ok, seconds)
+);
+
+// Runs the benchmarks the configuration lists, in file order, skipping those this implementation
+// does not provide and those the name filter excludes.
+//
+// # Parameters
+// * `registry` - The benchmarks this implementation provides, by name.
+// * `name_filter` - When present, only benchmarks whose name contains it are run.
+// * `config` - The configuration to read.
+run_all : Array (String, MakeBench) -> Option String -> Config -> IO Bool;
+run_all = |registry, name_filter, config| (
+    let selected = config.names.to_iter.filter(|name|
+        if name_filter.is_none { true };
+        name.to_lower_ascii.find(name_filter.as_some.to_lower_ascii, 0).is_some
+    );
+    let (total, ok, seconds) = *selected.fold_m((0, 0, 0.0), |name, (total, ok, seconds)|
+        let index = registry.find_by(|kv| kv.@0 == name);
+        if index.is_none {
+            println("Warning: Benchmark \"" + name + "\" defined in config but not found in code");;
+            pure $ (total, ok, seconds)
+        };
+        let (passed, delta) = *run_one(name, registry.@(index.as_some).@1, config);
+        pure $ (total + 1, ok + if passed { 1 } else { 0 }, seconds + delta)
+    );
+    println(
+        "Summary: " + seconds.to_string_precision(4_U8) + "s, " +
+        total.to_string + ", " + ok.to_string + ", " + (total - ok).to_string
+    );;
+    pure $ ok == total
+);

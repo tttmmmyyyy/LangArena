@@ -1,0 +1,40 @@
+module Main;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+import LangArena.Benchmarks.Sieve;
+
+// Every benchmark this implementation provides. The runner looks names up here as it walks the
+// configuration, so a name the configuration lists and this table lacks is reported and skipped.
+_registry : Array (String, MakeBench);
+_registry = [
+    Sieve::entry
+];
+
+_default_config_path : String = "../run.js";
+
+// Splits the command line into the configuration path and the optional name filter. The path is
+// recognised by its extension, matching how the other implementations read their arguments.
+//
+// # Parameters
+// * `args` - The command line, without the program name.
+_parse_args : Array String -> (String, Option String);
+_parse_args = |args| (
+    if args.@size == 0 { (_default_config_path, none()) };
+    let head = args.@(0);
+    let is_path = [".txt", ".json", ".js", ".config"].to_iter.check_any(|ext| head.find(ext, 0).is_some);
+    if is_path {
+        (head, if args.@size > 1 { some(args.@(1)) } else { none() })
+    };
+    (_default_config_path, some(head))
+);
+
+main : IO ();
+main = (
+    let (path, filter) = *get_args.map(|args| _parse_args(args.get_sub(1, args.@size)));
+    println("start: " + (*Bench::unix_millis).to_string);;
+    let config = *Helper::read_config(path).try(|err| eprintln(err);; exit(1));
+    let ok = *Bench::run_all(_registry, filter, config);
+    if ok { pure() } else { exit(1) }
+);

@@ -1,0 +1,50 @@
+// Counts the primes up to a limit with the sieve of Eratosthenes, rebuilding the sieve on every
+// iteration so that the allocation is part of the work.
+module LangArena.Benchmarks.Sieve;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Etc::Sieve";
+
+// Sieves up to `limit` and returns the largest prime found plus the number of primes found.
+//
+// # Parameters
+// * `limit` - The largest number considered.
+_sieve : I64 -> I64;
+_sieve = |limit| (
+    let primes = Array::fill(limit + 1, 1_U8).set(0, 0_U8).set(1, 0_U8);
+    let sqrt_limit = Helper::sqrt(limit.f64).i64;
+    let primes = loop((2, primes), |(p, primes)|
+        if p > sqrt_limit { break $ primes };
+        if primes.@(p) != 1_U8 { continue $ (p + 1, primes) };
+        let primes = loop((p * p, primes), |(multiple, primes)|
+            if multiple > limit { break $ primes };
+            continue $ (multiple + p, primes.set(multiple, 0_U8))
+        );
+        continue $ (p + 1, primes)
+    );
+    let (last_prime, count) = loop((3, 2, 1), |(n, last_prime, count)|
+        if n > limit { break $ (last_prime, count) };
+        if primes.@(n) == 1_U8 { continue $ (n + 2, n, count + 1) };
+        continue $ (n + 2, last_prime, count)
+    );
+    last_prime + count
+);
+
+_make_bench : I64 -> U32 -> Bench;
+_make_bench = |limit, checksum| Bench {
+    run_iters : |iterations| (
+        let checksum = loop((0, checksum), |(i, checksum)|
+            if i == iterations { break $ checksum };
+            continue $ (i + 1, checksum + _sieve(limit).u32)
+        );
+        _make_bench(limit, checksum)
+    ),
+    checksum : |_| checksum
+};
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, _| _make_bench(config.config_i64(_name, "limit"), 0_U32));

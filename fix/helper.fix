@@ -1,0 +1,152 @@
+// The parts every benchmark shares: the configuration read from `run.js`, the pseudo-random
+// generator whose stream is fixed across all languages, and the checksum functions.
+module LangArena.Helper;
+
+import Std;
+import Minilib.Encoding.Json;
+import Minilib.Encoding.Json.JsonDecoder;
+import Minilib.Collection.OrderedMap;
+
+// The parameters of the linear congruential generator. Every language implements this same
+// generator, and the expected checksums are computed from the stream it produces, so these values
+// and the arithmetic below have to agree bit for bit with the other implementations.
+_lcg_modulus : I64 = 139968;
+_lcg_multiplier : I64 = 3877;
+_lcg_increment : I64 = 29573;
+_lcg_seed : I64 = 42;
+
+// The pseudo-random generator. It is threaded through the input generation of a benchmark rather
+// than kept in a global, which the timed part of a benchmark never needs since no benchmark draws a
+// random number while it is being measured.
+type Rng = unbox struct { last : I64 };
+
+// A generator at the seed every implementation starts from.
+make_rng : Rng;
+make_rng = Rng { last : _lcg_seed };
+
+_advance : Rng -> Rng;
+_advance = |rng| Rng { last : (rng.@last * _lcg_multiplier + _lcg_increment) % _lcg_modulus };
+
+// Draws an integer in `[0, max)` and returns it with the advanced generator.
+//
+// # Parameters
+// * `max` - One past the largest value that can be drawn.
+// * `rng` - The generator to draw from.
+next_int : I64 -> Rng -> (I64, Rng);
+next_int = |max, rng| (
+    let rng = rng._advance;
+    ((rng.@last.f64 / _lcg_modulus.f64 * max.f64).i64, rng)
+);
+
+// Draws a float in `[0, max)` and returns it with the advanced generator.
+//
+// # Parameters
+// * `max` - One past the largest value that can be drawn.
+// * `rng` - The generator to draw from.
+next_float : F64 -> Rng -> (F64, Rng);
+next_float = |max, rng| (
+    let rng = rng._advance;
+    (max * rng.@last.f64 / _lcg_modulus.f64, rng)
+);
+
+// The DJB2 hash the benchmarks report as their result.
+//
+// # Parameters
+// * `bytes` - The bytes to hash.
+checksum_bytes : Array U8 -> U32;
+checksum_bytes = |bytes| (
+    let n = bytes.@size;
+    loop((0, 5381_U32), |(i, h)|
+        if i == n { break $ h };
+        continue $ (i + 1, h * 33_U32 + bytes.@(i).u32)
+    )
+);
+
+// The DJB2 hash of a string's bytes, excluding the null terminator.
+//
+// # Parameters
+// * `str` - The string to hash.
+checksum_str : String -> U32;
+checksum_str = |str| (
+    let bytes = str.get_bytes;
+    checksum_bytes(bytes.get_sub(0, bytes.@size - 1))
+);
+
+// The checksum of a float, taken over its decimal form with seven fractional digits.
+//
+// # Parameters
+// * `value` - The float to hash.
+checksum_float : F64 -> U32;
+checksum_float = |value| checksum_str(value.to_string_precision(7_U8));
+
+// The benchmark parameters read from the configuration file, in the order the file lists them.
+type Config = unbox struct { entries : Array (String, Json) };
+
+// Reads the configuration file, which holds one JSON object per benchmark.
+//
+// # Parameters
+// * `path` - Path of the configuration file.
+read_config : String -> IOFail Config;
+read_config = |path| (
+    let text = *read_file_string(path);
+    let json = *JsonDecoder::decode(text).from_result;
+    let entries = json.as_array.map(|entry| (entry.as_object.find("name").as_some.as_string, entry));
+    pure $ Config { entries : entries }
+);
+
+// The benchmark names the configuration lists, in file order.
+//
+// # Parameters
+// * `config` - The configuration to read.
+names : Config -> Array String;
+names = |config| config.@entries.map(@0);
+
+_entry : String -> Config -> Option Json;
+_entry = |name, config| (
+    let entries = config.@entries;
+    entries.find_by(|kv| kv.@0 == name).map(|i| entries.@(i).@1)
+);
+
+// Reads an integer parameter of a benchmark. Missing parameters read as zero, which is what the
+// other implementations do.
+//
+// # Parameters
+// * `name` - Name of the benchmark the parameter belongs to.
+// * `field` - Name of the parameter.
+// * `config` - The configuration to read.
+config_i64 : String -> String -> Config -> I64;
+config_i64 = |name, field, config| (
+    let value = config._entry(name).bind(|entry| entry.as_object.find(field));
+    if value.is_none { 0 };
+    value.as_some.as_number.i64
+);
+
+// Reads a string parameter of a benchmark. Missing parameters read as the empty string.
+//
+// # Parameters
+// * `name` - Name of the benchmark the parameter belongs to.
+// * `field` - Name of the parameter.
+// * `config` - The configuration to read.
+config_str : String -> String -> Config -> String;
+config_str = |name, field, config| (
+    let value = config._entry(name).bind(|entry| entry.as_object.find(field));
+    if value.is_none { "" };
+    value.as_some.as_string
+);
+
+// Square root, from the C library.
+//
+// # Parameters
+// * `x` - The value to take the root of.
+sqrt : F64 -> F64;
+sqrt = |x| FFI_CALL[F64 sqrt(F64), x];
+
+// Maps the ASCII upper-case letters of a string to lower case, which is how the benchmark name
+// filter compares names.
+//
+// # Parameters
+// * `str` - The string to map.
+to_lower_ascii : String -> String;
+to_lower_ascii = |str| (
+    str.get_bytes.map(|b| if b >= 'A' && b <= 'Z' { b + 32_U8 } else { b }).from_bytes.as_ok
+);

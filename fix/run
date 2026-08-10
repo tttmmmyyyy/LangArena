@@ -1,0 +1,4 @@
+#!/bin/sh
+rm -f target/bin_run
+fix build --allow-preliminary-commands -O max -o target/bin_run
+../xtime.rb target/bin_run ../run.js "$@"
