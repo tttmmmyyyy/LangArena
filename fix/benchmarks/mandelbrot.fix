@@ -1,0 +1,70 @@
+// Renders the Mandelbrot set into a PBM bitmap, one bit per pixel. Every iteration appends another
+// copy of the image to the buffer, so the buffer the checksum is taken over keeps growing.
+module LangArena.Benchmarks.Mandelbrot;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "CLBG::Mandelbrot";
+
+// The escape-time iteration count and the radius beyond which a point is taken to escape.
+_max_escape_steps : I64 = 50;
+_escape_radius : F64 = 2.0;
+
+// Whether the point at the given coordinates is still inside the set after the escape-time
+// iteration.
+//
+// # Parameters
+// * `cr` - Real part of the point.
+// * `ci` - Imaginary part of the point.
+_is_inside : F64 -> F64 -> Bool;
+_is_inside = |cr, ci| (
+    let squared_radius = _escape_radius * _escape_radius;
+    loop((0, 0.0, 0.0, 0.0, 0.0), |(step, zr, zi, zr2, zi2)|
+        if step >= _max_escape_steps || zr2 + zi2 > squared_radius { break $ zr2 + zi2 <= squared_radius };
+        let next_zi = 2.0 * zr * zi + ci;
+        let next_zr = zr2 - zi2 + cr;
+        continue $ (step + 1, next_zr, next_zi, next_zr * next_zr, next_zi * next_zi)
+    )
+);
+
+// Appends one rendering of the set to the bitmap buffer.
+//
+// # Parameters
+// * `w` - Width of the image in pixels.
+// * `h` - Height of the image in pixels.
+// * `bitmap` - The buffer to append to.
+_render : I64 -> I64 -> Array U8 -> Array U8;
+_render = |w, h, bitmap| (
+    let header = Helper::bytes_of("P4\n" + w.to_string + " " + h.to_string + "\n");
+    let bitmap = header.to_iter.fold(bitmap, |byte, bitmap| bitmap.push_back(byte));
+    let (bitmap, _, _) = Iterator::range(0, h).fold((bitmap, 0_U8, 0), |y, state|
+        let ci = 2.0 * y.f64 / h.f64 - 1.0;
+        Iterator::range(0, w).fold(state, |x, (bitmap, byte, bit_count)|
+            let cr = 2.0 * x.f64 / w.f64 - 1.5;
+            let byte = byte.shift_left(1_U8) + if _is_inside(cr, ci) { 1_U8 } else { 0_U8 };
+            let bit_count = bit_count + 1;
+            // A full byte is emitted as it is; the last byte of a row is padded on the right.
+            if bit_count == 8 { (bitmap.push_back(byte), 0_U8, 0) };
+            if x == w - 1 { (bitmap.push_back(byte.shift_left((8 - w % 8).u8)), 0_U8, 0) };
+            (bitmap, byte, bit_count)
+        )
+    );
+    bitmap
+);
+
+_make_bench : I64 -> I64 -> Array U8 -> Bench;
+_make_bench = |w, h, bitmap| Bench {
+    run_iters : |iterations| (
+        let bitmap = Iterator::range(0, iterations).fold(bitmap, |_, bitmap| _render(w, h, bitmap));
+        _make_bench(w, h, bitmap)
+    ),
+    checksum : |_| Helper::checksum_bytes(bitmap)
+};
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, _|
+    _make_bench(config.config_i64(_name, "w"), config.config_i64(_name, "h"), Array::empty(0))
+);

@@ -62,15 +62,22 @@ checksum_bytes = |bytes| (
     )
 );
 
-// The DJB2 hash of a string's bytes, excluding the null terminator.
+// The bytes of a string, without the null terminator `String` keeps behind them.
+//
+// # Parameters
+// * `str` - The string to take the bytes of.
+bytes_of : String -> Array U8;
+bytes_of = |str| (
+    let bytes = str.get_bytes;
+    bytes.get_sub(0, bytes.@size - 1)
+);
+
+// The DJB2 hash of a string's bytes.
 //
 // # Parameters
 // * `str` - The string to hash.
 checksum_str : String -> U32;
-checksum_str = |str| (
-    let bytes = str.get_bytes;
-    checksum_bytes(bytes.get_sub(0, bytes.@size - 1))
-);
+checksum_str = |str| checksum_bytes(str.bytes_of);
 
 // The checksum of a float, taken over its decimal form with seven fractional digits.
 //
