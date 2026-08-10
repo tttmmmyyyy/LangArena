@@ -1,0 +1,6 @@
+FROM benchmarks:base
+
+ARG version
+RUN wget --progress=dot:giga -O /usr/local/bin/fix \
+    https://github.com/tttmmmyyyy/fixlang/releases/download/$version/fix-$version-x86_64-unknown-linux-gnu \
+    && chmod +x /usr/local/bin/fix
