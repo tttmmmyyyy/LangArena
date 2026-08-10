@@ -63,10 +63,7 @@ checksum_bytes = |bytes| (
 // # Parameters
 // * `str` - The string to take the bytes of.
 bytes_of : String -> Array U8;
-bytes_of = |str| (
-    let bytes = str.get_bytes;
-    bytes.get_sub(0, bytes.@size - 1)
-);
+bytes_of = |str| str.get_bytes.pop_back;
 
 // The DJB2 hash of a string's bytes.
 //
