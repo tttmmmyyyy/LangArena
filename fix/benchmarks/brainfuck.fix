@@ -1,0 +1,197 @@
+// Interprets a Brainfuck program twice over: once from a flat command array with a jump table, and
+// once from a tree of operations walked by recursion.
+module LangArena.Benchmarks.Brainfuck;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_array_name : String = "Brainfuck::Array";
+_recursion_name : String = "Brainfuck::Recursion";
+
+// The length the flat interpreter gives its tape before it has to grow.
+_initial_tape_size : I64 = 30000;
+
+// Whether a byte is one of the eight Brainfuck commands.
+//
+// # Parameters
+// * `byte` - The byte to test.
+_is_command : U8 -> Bool;
+_is_command = |byte| (
+    byte == '+' || byte == '-' || byte == '>' || byte == '<'
+        || byte == '[' || byte == ']' || byte == '.' || byte == ','
+);
+
+// A program as the flat interpreter holds it: the commands with everything else stripped out, and
+// for each bracket the index of the bracket that matches it.
+type FlatProgram = struct { commands : Array U8, jumps : Array I64 };
+
+// Strips the comments out of a source text and pairs up its brackets.
+//
+// # Parameters
+// * `source` - The program text.
+_parse_flat : String -> FlatProgram;
+_parse_flat = |source| (
+    let commands = source.bytes_of.to_iter.filter(_is_command).to_array;
+    let (jumps, _) = range(0, commands.@size).fold((fill(commands.@size, 0), Array::empty(64)),
+        |i, (jumps, stack)|
+            let command = commands.@(i);
+            if command == '[' { (jumps, stack.push_back(i)) };
+            if command != ']' { (jumps, stack) };
+            let start = stack.@(stack.@size - 1);
+            (jumps.set(start, i).set(i, start), stack.pop_back)
+    );
+    FlatProgram { commands : commands, jumps : jumps }
+);
+
+// Runs a flat program and returns the value its output builds up.
+//
+// # Parameters
+// * `program` - The program to run.
+_run_flat : FlatProgram -> U32;
+_run_flat = |program| (
+    let commands = program.@commands;
+    let jumps = program.@jumps;
+    let size = commands.@size;
+    let (_, _, _, result) = loop((0, 0, fill(_initial_tape_size, 0_U8), 0_U32),
+        |(pc, pos, tape, result)|
+            if pc >= size { break $ (pc, pos, tape, result) };
+            let command = commands.@(pc);
+            let cell = tape.@(pos);
+            if command == '+' { continue $ (pc + 1, pos, tape.set(pos, cell + 1_U8), result) };
+            if command == '-' { continue $ (pc + 1, pos, tape.set(pos, cell - 1_U8), result) };
+            if command == '>' {
+                let pos = pos + 1;
+                let tape = if pos >= tape.@size { tape.push_back(0_U8) } else { tape };
+                continue $ (pc + 1, pos, tape, result)
+            };
+            if command == '<' {
+                continue $ (pc + 1, if pos > 0 { pos - 1 } else { pos }, tape, result)
+            };
+            if command == '[' {
+                continue $ (if cell == 0_U8 { jumps.@(pc) } else { pc } + 1, pos, tape, result)
+            };
+            if command == ']' {
+                continue $ (if cell != 0_U8 { jumps.@(pc) } else { pc } + 1, pos, tape, result)
+            };
+            continue $ (pc + 1, pos, tape, result.shift_left(2_U32) + cell.u32)
+    );
+    result
+);
+
+// A program as the recursive interpreter holds it: a loop carries the operations of its body, so
+// the brackets become nesting.
+type Op = box union {
+    decrement : (),
+    increment : (),
+    backward : (),
+    forward : (),
+    print : (),
+    body : Array Op
+};
+
+// Parses the operations up to the end of the text or the bracket that closes the enclosing loop,
+// and returns them with the index just past where it stopped.
+//
+// # Parameters
+// * `source` - The bytes of the program text.
+// * `from` - Index to start parsing at.
+_parse_ops : Array U8 -> I64 -> (Array Op, I64);
+_parse_ops = |source, from| (
+    loop((from, Array::empty(16)), |(i, ops)|
+        if i >= source.@size { break $ (ops, i) };
+        let byte = source.@(i);
+        if byte == ']' { break $ (ops, i + 1) };
+        if byte == '[' {
+            let (inner, next) = _parse_ops(source, i + 1);
+            continue $ (next, ops.push_back(body(inner)))
+        };
+        if byte == '-' { continue $ (i + 1, ops.push_back(decrement())) };
+        if byte == '+' { continue $ (i + 1, ops.push_back(increment())) };
+        if byte == '<' { continue $ (i + 1, ops.push_back(backward())) };
+        if byte == '>' { continue $ (i + 1, ops.push_back(forward())) };
+        if byte == '.' { continue $ (i + 1, ops.push_back(print())) };
+        continue $ (i + 1, ops)
+    )
+);
+
+// The state the recursive interpreter threads through the operations: the tape, the position on it,
+// and the value the output builds up.
+type Machine = struct { tape : Array U8, pos : I64, result : I64 };
+
+// Runs a sequence of operations against the machine.
+//
+// # Parameters
+// * `ops` - The operations to run.
+// * `machine` - The state to run them against.
+_execute : Array Op -> Machine -> Machine;
+_execute = |ops, machine| (
+    ops.to_iter.fold(machine, |op, machine|
+        let pos = machine.@pos;
+        if op.is_increment { machine.mod_tape(|tape| tape.set(pos, tape.@(pos) + 1_U8)) };
+        if op.is_decrement { machine.mod_tape(|tape| tape.set(pos, tape.@(pos) - 1_U8)) };
+        if op.is_backward { machine.set_pos(if pos > 0 { pos - 1 } else { pos }) };
+        if op.is_forward {
+            let machine = machine.set_pos(pos + 1);
+            if pos + 1 < machine.@tape.@size { machine };
+            machine.mod_tape(push_back(0_U8))
+        };
+        if op.is_print {
+            machine.mod_result(|result| result.shift_left(2_I64) + machine.@tape.@(pos).i64)
+        };
+        let inner = op.as_body;
+        loop(machine, |machine|
+            if machine.@tape.@(machine.@pos) == 0_U8 { break $ machine };
+            continue $ _execute(inner, machine)
+        )
+    )
+);
+
+// Parses and runs a program with the recursive interpreter.
+//
+// # Parameters
+// * `source` - The program text.
+_run_recursive : String -> U32;
+_run_recursive = |source| (
+    let (ops, _) = _parse_ops(source.bytes_of, 0);
+    let machine = _execute(ops, Machine { tape : fill(1, 0_U8), pos : 0, result : 0 });
+    machine.@result.u32
+);
+
+// The benchmark holding the two programs, the interpreter under test, and the sum of the runs so
+// far. The warm-up runs the warm-up program and keeps nothing from it, which is what makes it
+// separate from the measured run.
+//
+// # Parameters
+// * `run` - The interpreter to apply to a program text.
+// * `program` - The program the measured run interprets.
+// * `warmup_program` - The program the warm-up interprets.
+// * `total` - The sum of the measured runs so far.
+_make_bench : (String -> U32) -> String -> String -> U32 -> Bench;
+_make_bench = |run, program, warmup_program, total| Bench {
+    run_iters : |iterations| (
+        let total = total + range(0, iterations).map(|_| run(program)).sum;
+        _make_bench(run, program, warmup_program, total)
+    ),
+    warmup : |iterations| (
+        eval range(0, iterations).map(|_| run(warmup_program)).sum;
+        _make_bench(run, program, warmup_program, total)
+    ),
+    checksum : |_| total
+};
+
+// The flat interpreter's benchmark, as the runner's registry holds it.
+array_entry : (String, MakeBench);
+array_entry = (_array_name, |config, _|
+    _make_bench(|source| _run_flat(_parse_flat(source)),
+                config.config_str(_array_name, "program"),
+                config.config_str(_array_name, "warmup_program"), 0_U32)
+);
+
+// The recursive interpreter's benchmark, as the runner's registry holds it.
+recursion_entry : (String, MakeBench);
+recursion_entry = (_recursion_name, |config, _|
+    _make_bench(_run_recursive,
+                config.config_str(_recursion_name, "program"),
+                config.config_str(_recursion_name, "warmup_program"), 0_U32)
+);

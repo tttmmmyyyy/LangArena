@@ -4,6 +4,7 @@ import Std;
 import LangArena.Bench;
 import LangArena.Helper;
 import LangArena.Benchmarks.Binarytrees;
+import LangArena.Benchmarks.Brainfuck;
 import LangArena.Benchmarks.BufferHash;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Nbody;
@@ -16,6 +17,8 @@ _registry : Array (String, MakeBench);
 _registry = [
     Binarytrees::arena_entry,
     Binarytrees::obj_entry,
+    Brainfuck::array_entry,
+    Brainfuck::recursion_entry,
     BufferHash::crc32_entry,
     BufferHash::sha256_entry,
     Mandelbrot::entry,
