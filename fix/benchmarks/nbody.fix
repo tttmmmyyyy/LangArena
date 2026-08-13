@@ -137,17 +137,15 @@ _advance = |bodies| (
 // * `initial_energy` - The energy of the system before any advance.
 // * `bodies` - The bodies of the system as the advances so far left them.
 _make_bench : F64 -> Array Planet -> Bench;
-_make_bench = |initial_energy, bodies| Bench {
-    run_iters : |iterations| (
+_make_bench = |initial_energy, bodies| Bench::make(
+    |iterations| (
         let bodies = range(0, iterations).fold(bodies, |_, bodies|
             range(0, _steps_per_iteration).fold(bodies, |_| _advance)
         );
         _make_bench(initial_energy, bodies)
     ),
-    checksum : |_| (
-        Helper::checksum_float(initial_energy).shift_left(5_U32).bit_and(Helper::checksum_float(_energy(bodies)))
-    )
-};
+    |_| Helper::checksum_float(initial_energy).shift_left(5_U32).bit_and(Helper::checksum_float(_energy(bodies)))
+);
 
 // The benchmark, as the runner's registry holds it.
 entry : (String, MakeBench);

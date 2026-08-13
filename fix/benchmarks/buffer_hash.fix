@@ -80,13 +80,13 @@ _sha256_digest = |data| (
 // * `data` - The buffer to hash.
 // * `total` - The sum of the hashes taken so far.
 _make_bench : String -> (Array U8 -> U32) -> Array U8 -> U32 -> Bench;
-_make_bench = |name, hash, data, total| Bench {
-    run_iters : |iterations| (
+_make_bench = |name, hash, data, total| Bench::make(
+    |iterations| (
         let total = total + range(0, iterations).map(|_| hash(data)).sum;
         _make_bench(name, hash, data, total)
     ),
-    checksum : |_| total
-};
+    |_| total
+);
 
 // The first four bytes of the digest, read as a little-endian word.
 //

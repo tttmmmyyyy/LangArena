@@ -36,13 +36,13 @@ _sieve = |limit| (
 // * `limit` - The largest number the sieve considers.
 // * `checksum` - The checksum of the iterations run so far.
 _make_bench : I64 -> U32 -> Bench;
-_make_bench = |limit, checksum| Bench {
-    run_iters : |iterations| (
+_make_bench = |limit, checksum| Bench::make(
+    |iterations| (
         let checksum = checksum + range(0, iterations).map(|_| _sieve(limit).u32).sum;
         _make_bench(limit, checksum)
     ),
-    checksum : |_| checksum
-};
+    |_| checksum
+);
 
 // The benchmark, as the runner's registry holds it.
 entry : (String, MakeBench);

@@ -54,22 +54,22 @@ _eval_ata_times_u = |u| u._eval_a_times_u._eval_at_times_u;
 // * `u` - The vector the next step starts from.
 // * `v` - The vector the last step produced.
 _make_bench : Array F64 -> Array F64 -> Bench;
-_make_bench = |u, v| Bench {
-    run_iters : |iterations| (
+_make_bench = |u, v| Bench::make(
+    |iterations| (
         let (u, v) = range(0, iterations).fold((u, v), |_, (u, v)|
             let v = u._eval_ata_times_u;
             (v._eval_ata_times_u, v)
         );
         _make_bench(u, v)
     ),
-    checksum : |_| (
+    |_| (
         let (vbv, vv) = range(0, v.@size).fold((0.0, 0.0), |i, (vbv, vv)|
             let vi = v.@(i);
             (vbv + u.@(i) * vi, vv + vi * vi)
         );
         Helper::checksum_float((vbv / vv).sqrt)
     )
-};
+);
 
 // The benchmark, as the runner's registry holds it.
 entry : (String, MakeBench);

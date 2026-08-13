@@ -3,6 +3,7 @@ module Main;
 import Std;
 import LangArena.Bench;
 import LangArena.Helper;
+import LangArena.Benchmarks.Binarytrees;
 import LangArena.Benchmarks.BufferHash;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Nbody;
@@ -13,6 +14,8 @@ import LangArena.Benchmarks.Spectralnorm;
 // configuration, so a name the configuration lists and this table lacks is reported and skipped.
 _registry : Array (String, MakeBench);
 _registry = [
+    Binarytrees::arena_entry,
+    Binarytrees::obj_entry,
     BufferHash::crc32_entry,
     BufferHash::sha256_entry,
     Mandelbrot::entry,

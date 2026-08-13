@@ -61,13 +61,13 @@ _render = |w, h, bitmap| (
 // * `h` - Height of the image in pixels.
 // * `bitmap` - The renderings of the iterations run so far.
 _make_bench : I64 -> I64 -> Array U8 -> Bench;
-_make_bench = |w, h, bitmap| Bench {
-    run_iters : |iterations| (
+_make_bench = |w, h, bitmap| Bench::make(
+    |iterations| (
         let bitmap = range(0, iterations).fold(bitmap, |_| _render(w, h));
         _make_bench(w, h, bitmap)
     ),
-    checksum : |_| Helper::checksum_bytes(bitmap)
-};
+    |_| Helper::checksum_bytes(bitmap)
+);
 
 // The benchmark, as the runner's registry holds it.
 entry : (String, MakeBench);

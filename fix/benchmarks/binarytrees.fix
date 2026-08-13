@@ -1,0 +1,109 @@
+// Builds a complete binary tree and walks it, twice over: once with a node per allocation, and once
+// with every node in one array addressed by index.
+module LangArena.Benchmarks.Binarytrees;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_obj_name : String = "Binarytrees::Obj";
+_arena_name : String = "Binarytrees::Arena";
+
+// A node holding its two children directly. A leaf has none.
+type TreeNode = box struct { item : I32, children : Option (TreeNode, TreeNode) };
+
+// Builds a complete tree of the given depth, the two children of a node differing from it by half
+// the span the node itself spans.
+//
+// # Parameters
+// * `item` - The value of the root.
+// * `depth` - Number of levels below the root.
+_build_tree : I32 -> I64 -> TreeNode;
+_build_tree = |item, depth| (
+    if depth <= 0 {
+        TreeNode { item : item, children : none() }
+    };
+    let span = 1.shift_left(depth - 1).i32;
+    TreeNode {
+        item : item,
+        children : some((_build_tree(item - span, depth - 1), _build_tree(item + span, depth - 1)))
+    }
+);
+
+// The sum over the tree of every node's value plus one.
+//
+// # Parameters
+// * `node` - The root of the tree to walk.
+_sum_tree : TreeNode -> U32;
+_sum_tree = |node| (
+    let total = node.@item.u32 + 1_U32;
+    if node.@children.is_none { total };
+    let (left, right) = node.@children.as_some;
+    total + _sum_tree(left) + _sum_tree(right)
+);
+
+// A node of the arena, naming its children by their index. A leaf names -1 for both.
+type ArenaNode = struct { item : I32, left : I32, right : I32 };
+
+// Appends a complete tree of the given depth to the arena and returns the index of its root.
+//
+// # Parameters
+// * `item` - The value of the root.
+// * `depth` - Number of levels below the root.
+// * `arena` - The arena to append to.
+_build_arena : I32 -> I64 -> Array ArenaNode -> (I32, Array ArenaNode);
+_build_arena = |item, depth, arena| (
+    let index = arena.@size.i32;
+    let arena = arena.push_back(ArenaNode { item : item, left : -1_I32, right : -1_I32 });
+    if depth <= 0 { (index, arena) };
+    let span = 1.shift_left(depth - 1).i32;
+    let (left, arena) = _build_arena(item - span, depth - 1, arena);
+    let (right, arena) = _build_arena(item + span, depth - 1, arena);
+    (index, arena.mod(index.i64, |node| node.set_left(left).set_right(right)))
+);
+
+// The sum over the arena's tree of every node's value plus one.
+//
+// # Parameters
+// * `index` - Index of the root to walk from.
+// * `arena` - The arena holding the tree.
+_sum_arena : I32 -> Array ArenaNode -> U32;
+_sum_arena = |index, arena| (
+    let node = arena.@(index.i64);
+    let total = node.@item.u32 + 1_U32;
+    let total = if node.@left >= 0_I32 { total + _sum_arena(node.@left, arena) } else { total };
+    if node.@right >= 0_I32 { total + _sum_arena(node.@right, arena) } else { total }
+);
+
+// The benchmark holding the tree depth, the walk under test, and the sum of the walks so far.
+//
+// # Parameters
+// * `name` - Name of the benchmark.
+// * `walk` - Builds a tree of the given depth and returns the sum over it.
+// * `depth` - Number of levels below the root.
+// * `total` - The sum of the walks so far.
+_make_bench : String -> (I64 -> U32) -> I64 -> U32 -> Bench;
+_make_bench = |name, walk, depth, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| walk(depth)).sum;
+        _make_bench(name, walk, depth, total)
+    ),
+    |_| total
+);
+
+// The benchmark with a node per allocation, as the runner's registry holds it.
+obj_entry : (String, MakeBench);
+obj_entry = (_obj_name, |config, _|
+    _make_bench(_obj_name, |depth| _sum_tree(_build_tree(0_I32, depth)),
+                config.config_i64(_obj_name, "depth"), 0_U32)
+);
+
+// The benchmark with the nodes in one array, as the runner's registry holds it.
+arena_entry : (String, MakeBench);
+arena_entry = (_arena_name, |config, _|
+    _make_bench(_arena_name, |depth| (
+                    let (root, arena) = _build_arena(0_I32, depth, Array::empty(0));
+                    _sum_arena(root, arena)
+                ),
+                config.config_i64(_arena_name, "depth"), 0_U32)
+);

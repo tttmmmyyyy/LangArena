@@ -12,7 +12,21 @@ import LangArena.Helper;
 // field so that computing it never falls inside the timed region.
 type Bench = box struct {
     run_iters : I64 -> Bench,
+    warmup : I64 -> Bench,
     checksum : () -> U32
+};
+
+// Builds a benchmark whose warm-up does the same work as the measured run, which is what a
+// benchmark does unless the configuration gives it a separate warm-up input.
+//
+// # Parameters
+// * `run_iters` - Advances the benchmark by the given number of iterations.
+// * `checksum` - The result of the work done so far.
+make : (I64 -> Bench) -> (() -> U32) -> Bench;
+make = |run_iters, checksum| Bench {
+    run_iters : run_iters,
+    warmup : run_iters,
+    checksum : checksum
 };
 
 // Builds a benchmark from the configuration and a fresh generator. The generator is returned
@@ -67,7 +81,7 @@ run_one = |name, make, config| (
     let iterations = config.config_i64(name, "iterations");
     let expected = config.config_i64(name, "checksum").u32;
     let bench = make(config, Helper::make_rng);
-    let bench = (bench.@run_iters)(_warmup_iterations(name, config));
+    let bench = (bench.@warmup)(_warmup_iterations(name, config));
     let (bench, seconds) = *_timed(|_| (bench.@run_iters)(iterations));
     let actual = (bench.@checksum)(());
     let ok = actual == expected;
