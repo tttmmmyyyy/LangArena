@@ -1,0 +1,79 @@
+// Approximates the largest singular value of the infinite matrix `A(i,j) = 1/((i+j)(i+j+1)/2+i+1)`
+// by the power method, the spectral-norm benchmark of the Computer Language Benchmarks Game.
+module LangArena.Benchmarks.Spectralnorm;
+
+import Std;
+import Math;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "CLBG::Spectralnorm";
+
+// The entry of the matrix at the given row and column.
+//
+// # Parameters
+// * `i` - Row index.
+// * `j` - Column index.
+_eval_a : I64 -> I64 -> F64;
+_eval_a = |i, j| (
+    let ij = (i + j).f64;
+    1.0 / (ij * (ij + 1.0) / 2.0 + i.f64 + 1.0)
+);
+
+// Multiplies a vector by the matrix.
+//
+// # Parameters
+// * `u` - The vector to multiply.
+_eval_a_times_u : Array F64 -> Array F64;
+_eval_a_times_u = |u| (
+    let n = u.@size;
+    from_map(n, |i| range(0, n).fold(0.0, |j, acc| acc + _eval_a(i, j) * u.@(j)))
+);
+
+// Multiplies a vector by the transpose of the matrix.
+//
+// # Parameters
+// * `u` - The vector to multiply.
+_eval_at_times_u : Array F64 -> Array F64;
+_eval_at_times_u = |u| (
+    let n = u.@size;
+    from_map(n, |i| range(0, n).fold(0.0, |j, acc| acc + _eval_a(j, i) * u.@(j)))
+);
+
+// Multiplies a vector by the transpose of the matrix times the matrix, which is the step the power
+// method iterates.
+//
+// # Parameters
+// * `u` - The vector to multiply.
+_eval_ata_times_u : Array F64 -> Array F64;
+_eval_ata_times_u = |u| u._eval_a_times_u._eval_at_times_u;
+
+// The benchmark holding the two vectors the power method alternates between.
+//
+// # Parameters
+// * `u` - The vector the next step starts from.
+// * `v` - The vector the last step produced.
+_make_bench : Array F64 -> Array F64 -> Bench;
+_make_bench = |u, v| Bench {
+    run_iters : |iterations| (
+        let (u, v) = range(0, iterations).fold((u, v), |_, (u, v)|
+            let v = u._eval_ata_times_u;
+            (v._eval_ata_times_u, v)
+        );
+        _make_bench(u, v)
+    ),
+    checksum : |_| (
+        let (vbv, vv) = range(0, v.@size).fold((0.0, 0.0), |i, (vbv, vv)|
+            let vi = v.@(i);
+            (vbv + u.@(i) * vi, vv + vi * vi)
+        );
+        Helper::checksum_float((vbv / vv).sqrt)
+    )
+};
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, _|
+    let n = config.config_i64(_name, "size");
+    _make_bench(fill(n, 1.0), fill(n, 1.0))
+);

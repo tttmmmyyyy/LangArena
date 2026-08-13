@@ -7,9 +7,11 @@ files = [
     "main.fix",
     "helper.fix",
     "bench.fix",
+    "benchmarks/buffer_hash.fix",
     "benchmarks/mandelbrot.fix",
     "benchmarks/nbody.fix",
     "benchmarks/sieve.fix",
+    "benchmarks/spectralnorm.fix",
 ]
 
 [[dependencies]]

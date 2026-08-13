@@ -3,17 +3,22 @@ module Main;
 import Std;
 import LangArena.Bench;
 import LangArena.Helper;
+import LangArena.Benchmarks.BufferHash;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Nbody;
 import LangArena.Benchmarks.Sieve;
+import LangArena.Benchmarks.Spectralnorm;
 
 // Every benchmark this implementation provides. The runner looks names up here as it walks the
 // configuration, so a name the configuration lists and this table lacks is reported and skipped.
 _registry : Array (String, MakeBench);
 _registry = [
+    BufferHash::crc32_entry,
+    BufferHash::sha256_entry,
     Mandelbrot::entry,
     Nbody::entry,
-    Sieve::entry
+    Sieve::entry,
+    Spectralnorm::entry
 ];
 
 _default_config_path : String = "../run.js";

@@ -1,0 +1,114 @@
+// Hashes a buffer of pseudo-random bytes, once with CRC-32 and once with a mixing function built
+// from the initial constants of SHA-256. Both walk the same buffer, so they share its generation.
+module LangArena.Benchmarks.BufferHash;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_crc32_name : String = "Hash::CRC32";
+_sha256_name : String = "Hash::SHA256";
+
+// Builds the buffer the hashes are taken over.
+//
+// # Parameters
+// * `size` - Length of the buffer in bytes.
+// * `rng` - The generator the bytes are drawn from.
+_make_data : I64 -> Rng -> Array U8;
+_make_data = |size, rng| (
+    let (data, _) = range(0, size).fold((Array::empty(size), rng), |_, (data, rng)|
+        let (byte, rng) = rng.next_int(256);
+        (data.push_back(byte.u8), rng)
+    );
+    data
+);
+
+// The CRC-32 of a buffer, with the reversed polynomial 0xEDB88320.
+//
+// # Parameters
+// * `data` - The buffer to hash.
+_crc32 : Array U8 -> U32;
+_crc32 = |data| (
+    let crc = data.to_iter.fold(0xFFFFFFFF_U32, |byte, crc|
+        range(0, 8).fold(crc.bit_xor(byte.u32), |_, crc|
+            if crc.bit_and(1_U32) != 0_U32 {
+                crc.shift_right(1_U32).bit_xor(0xEDB88320_U32)
+            } else {
+                crc.shift_right(1_U32)
+            }
+        )
+    );
+    crc.bit_xor(0xFFFFFFFF_U32)
+);
+
+// The eight words SHA-256 starts from, which is all this mixing function borrows from it.
+_sha256_initial_hashes : Array U32;
+_sha256_initial_hashes = [
+    0x6a09e667_U32, 0xbb67ae85_U32, 0x3c6ef372_U32, 0xa54ff53a_U32,
+    0x510e527f_U32, 0x9b05688c_U32, 0x1f83d9ab_U32, 0x5be0cd19_U32
+];
+
+// The 32-byte digest of a buffer: each byte is mixed into one of eight words in turn, and the words
+// are then written out in big-endian order.
+//
+// # Parameters
+// * `data` - The buffer to digest.
+_sha256_digest : Array U8 -> Array U8;
+_sha256_digest = |data| (
+    let hashes = range(0, data.@size).fold(_sha256_initial_hashes, |i, hashes|
+        let index = i % 8;
+        let hash = hashes.@(index);
+        let hash = hash.shift_left(5_U32) + hash + data.@(i).u32;
+        let hash = (hash + hash.shift_left(10_U32)).bit_xor(hash.shift_right(6_U32));
+        hashes.set(index, hash)
+    );
+    range(0, 8).fold(fill(32, 0_U8), |i, digest|
+        let hash = hashes.@(i);
+        digest.set(i * 4, hash.shift_right(24_U32).u8)
+              .set(i * 4 + 1, hash.shift_right(16_U32).u8)
+              .set(i * 4 + 2, hash.shift_right(8_U32).u8)
+              .set(i * 4 + 3, hash.u8)
+    )
+);
+
+// The benchmark holding the buffer, the hash function under test, and the sum of the hashes taken
+// so far.
+//
+// # Parameters
+// * `name` - Name of the benchmark.
+// * `hash` - The hash function to apply to the buffer.
+// * `data` - The buffer to hash.
+// * `total` - The sum of the hashes taken so far.
+_make_bench : String -> (Array U8 -> U32) -> Array U8 -> U32 -> Bench;
+_make_bench = |name, hash, data, total| Bench {
+    run_iters : |iterations| (
+        let total = total + range(0, iterations).map(|_| hash(data)).sum;
+        _make_bench(name, hash, data, total)
+    ),
+    checksum : |_| total
+};
+
+// The first four bytes of the digest, read as a little-endian word.
+//
+// # Parameters
+// * `data` - The buffer to digest.
+_sha256_head : Array U8 -> U32;
+_sha256_head = |data| (
+    let digest = _sha256_digest(data);
+    digest.@(0).u32
+        + digest.@(1).u32.shift_left(8_U32)
+        + digest.@(2).u32.shift_left(16_U32)
+        + digest.@(3).u32.shift_left(24_U32)
+);
+
+// The CRC-32 benchmark, as the runner's registry holds it.
+crc32_entry : (String, MakeBench);
+crc32_entry = (_crc32_name, |config, rng|
+    _make_bench(_crc32_name, _crc32, _make_data(config.config_i64(_crc32_name, "size"), rng), 0_U32)
+);
+
+// The SHA-256-flavoured benchmark, as the runner's registry holds it.
+sha256_entry : (String, MakeBench);
+sha256_entry = (_sha256_name, |config, rng|
+    _make_bench(_sha256_name, _sha256_head, _make_data(config.config_i64(_sha256_name, "size"), rng), 0_U32)
+);
