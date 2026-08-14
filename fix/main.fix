@@ -6,6 +6,7 @@ import LangArena.Helper;
 import LangArena.Benchmarks.Binarytrees;
 import LangArena.Benchmarks.Brainfuck;
 import LangArena.Benchmarks.BufferHash;
+import LangArena.Benchmarks.GameOfLife;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Nbody;
 import LangArena.Benchmarks.Sieve;
@@ -22,6 +23,7 @@ _registry = [
     Brainfuck::recursion_entry,
     BufferHash::crc32_entry,
     BufferHash::sha256_entry,
+    GameOfLife::entry,
     Mandelbrot::entry,
     Nbody::entry,
     Sieve::entry,

@@ -1,0 +1,100 @@
+// Runs Conway's Game of Life on a grid that wraps around at its edges.
+//
+// The other implementations give every cell a list of references to its eight neighbours and mutate
+// the cells in place. Fix reaches the same neighbours through a table of indices built once, since a
+// cell cannot be mutated while eight other cells hold a reference to it.
+module LangArena.Benchmarks.GameOfLife;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Etc::GameOfLife";
+
+// The fraction of cells that start out alive.
+_initial_density : F64 = 0.1;
+
+// The offsets of the eight neighbours of a cell, in the order the other implementations link them.
+_neighbour_offsets : Array (I64, I64);
+_neighbour_offsets = [
+    (-1, -1), (-1, 0), (-1, 1),
+    ( 0, -1),          ( 0, 1),
+    ( 1, -1), ( 1, 0), ( 1, 1)
+];
+
+// Builds the table that names the eight neighbours of every cell, eight entries per cell in cell
+// order.
+//
+// # Parameters
+// * `w` - Width of the grid in cells.
+// * `h` - Height of the grid in cells.
+_link_neighbours : I64 -> I64 -> Array I64;
+_link_neighbours = |w, h| (
+    from_map(w * h * 8, |k|
+        let (dy, dx) = _neighbour_offsets.@(k % 8);
+        let cell = k / 8;
+        let y = (cell / w + dy + h) % h;
+        let x = (cell % w + dx + w) % w;
+        y * w + x
+    )
+);
+
+// Advances the grid by one generation, writing the result into the second grid.
+//
+// # Parameters
+// * `neighbours` - The table naming every cell's neighbours.
+// * `grids` - The grid to read, and the grid to write.
+_next_generation : Array I64 -> (Array U8, Array U8) -> (Array U8, Array U8);
+_next_generation = |neighbours, (current, next)| (
+    let next = range(0, current.@size).fold(next, |cell, next|
+        let alive_neighbours = range(cell * 8, cell * 8 + 8).fold(0, |k, count|
+            count + current.@(neighbours.@(k)).i64
+        );
+        let alive = if current.@(cell) == 1_U8 {
+            alive_neighbours == 2 || alive_neighbours == 3
+        } else {
+            alive_neighbours == 3
+        };
+        next.set(cell, if alive { 1_U8 } else { 0_U8 })
+    );
+    (next, current)
+);
+
+// The FNV hash of the grid, plus the number of cells alive in it.
+//
+// # Parameters
+// * `grid` - The grid to take the checksum of.
+_grid_checksum : Array U8 -> U32;
+_grid_checksum = |grid| (
+    let (hash, alive) = range(0, grid.@size).fold((2166136261_U32, 0_U32), |cell, (hash, alive)|
+        let cell_alive = grid.@(cell).u32;
+        ((hash.bit_xor(cell_alive)) * 16777619_U32, alive + cell_alive)
+    );
+    hash + alive
+);
+
+// The benchmark holding the neighbour table and the two grids it alternates between.
+//
+// # Parameters
+// * `neighbours` - The table naming every cell's neighbours.
+// * `grids` - The grid holding the current generation, and the one the next is written into.
+_make_bench : Array I64 -> (Array U8, Array U8) -> Bench;
+_make_bench = |neighbours, grids| Bench::make(
+    |iterations| (
+        let grids = range(0, iterations).fold(grids, |_| _next_generation(neighbours));
+        _make_bench(neighbours, grids)
+    ),
+    |_| _grid_checksum(grids.@0)
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, rng|
+    let w = config.config_i64(_name, "w");
+    let h = config.config_i64(_name, "h");
+    let (grid, _) = range(0, w * h).fold((Array::empty(w * h), rng), |_, (grid, rng)|
+        let (value, rng) = rng.next_float(1.0);
+        (grid.push_back(if value < _initial_density { 1_U8 } else { 0_U8 }), rng)
+    );
+    _make_bench(_link_neighbours(w, h), (grid, fill(w * h, 0_U8)))
+);
