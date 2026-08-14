@@ -81,7 +81,7 @@ _run_flat = |program| (
 
 // A program as the recursive interpreter holds it: a loop carries the operations of its body, so
 // the brackets become nesting.
-type Op = box union {
+type Op = union {
     decrement : (),
     increment : (),
     backward : (),
@@ -128,22 +128,21 @@ _execute : Array Op -> Machine -> Machine;
 _execute = |ops, machine| (
     ops.to_iter.fold(machine, |op, machine|
         let pos = machine.@pos;
-        if op.is_increment { machine.mod_tape(|tape| tape.set(pos, tape.@(pos) + 1_U8)) };
-        if op.is_decrement { machine.mod_tape(|tape| tape.set(pos, tape.@(pos) - 1_U8)) };
-        if op.is_backward { machine.set_pos(if pos > 0 { pos - 1 } else { pos }) };
-        if op.is_forward {
-            let machine = machine.set_pos(pos + 1);
-            if pos + 1 < machine.@tape.@size { machine };
-            machine.mod_tape(push_back(0_U8))
-        };
-        if op.is_print {
-            machine.mod_result(|result| result.shift_left(2_I64) + machine.@tape.@(pos).i64)
-        };
-        let inner = op.as_body;
-        loop(machine, |machine|
-            if machine.@tape.@(machine.@pos) == 0_U8 { break $ machine };
-            continue $ _execute(inner, machine)
-        )
+        match op {
+            increment() => machine.mod_tape(|tape| tape.set(pos, tape.@(pos) + 1_U8)),
+            decrement() => machine.mod_tape(|tape| tape.set(pos, tape.@(pos) - 1_U8)),
+            backward() => machine.set_pos(if pos > 0 { pos - 1 } else { pos }),
+            forward() => (
+                let machine = machine.set_pos(pos + 1);
+                if pos + 1 < machine.@tape.@size { machine };
+                machine.mod_tape(push_back(0_U8))
+            ),
+            print() => machine.mod_result(|result| result.shift_left(2_I64) + machine.@tape.@(pos).i64),
+            body(inner) => loop(machine, |machine|
+                if machine.@tape.@(machine.@pos) == 0_U8 { break $ machine };
+                continue $ _execute(inner, machine)
+            )
+        }
     )
 );
 
