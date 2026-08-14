@@ -1,0 +1,160 @@
+// Sorts the same array of pseudo-random integers three ways: by a hand-written quick sort, by a
+// hand-written merge sort, and by the sort the standard library provides.
+module LangArena.Benchmarks.Sort;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_quick_name : String = "Sort::Quick";
+_merge_name : String = "Sort::Merge";
+_self_name : String = "Sort::Self";
+
+// Sorts the stretch `[lo, hi]` of an array in place by partitioning it around the value in its
+// middle.
+//
+// # Parameters
+// * `lo` - Index of the first element of the stretch.
+// * `hi` - Index of the last element of the stretch.
+// * `arr` - The array to sort.
+_quick_sort : I64 -> I64 -> Array I32 -> Array I32;
+_quick_sort = |lo, hi, arr| (
+    if hi <= lo { arr };
+    let pivot = arr.@(lo + (hi - lo + 1) / 2);
+    let (i, j, arr) = loop((lo, hi, arr), |(i, j, arr)|
+        if i > j { break $ (i, j, arr) };
+        let i = loop(i, |i| if arr.@(i) < pivot { continue $ i + 1 } else { break $ i });
+        let j = loop(j, |j| if arr.@(j) > pivot { continue $ j - 1 } else { break $ j });
+        if i > j { break $ (i, j, arr) };
+        let (a, b) = (arr.@(i), arr.@(j));
+        continue $ (i + 1, if j > lo { j - 1 } else { j }, arr.set(i, b).set(j, a))
+    );
+    let arr = if j > lo { _quick_sort(lo, j, arr) } else { arr };
+    if i < hi { _quick_sort(i, hi, arr) } else { arr }
+);
+
+// Merges the two sorted stretches `[left, mid]` and `[mid + 1, right]` into one, using the scratch
+// array to hold what the merge overwrites.
+//
+// # Parameters
+// * `left` - Index of the first element of the first stretch.
+// * `mid` - Index of the last element of the first stretch.
+// * `right` - Index of the last element of the second stretch.
+// * `arrays` - The array to merge into, and the scratch array.
+_merge : I64 -> I64 -> I64 -> (Array I32, Array I32) -> (Array I32, Array I32);
+_merge = |left, mid, right, (arr, scratch)| (
+    let scratch = range(left, right + 1).fold(scratch, |k, scratch| scratch.set(k, arr.@(k)));
+    let (i, _, k, arr) = loop((left, mid + 1, left, arr), |(i, j, k, arr)|
+        if i > mid || j > right { break $ (i, j, k, arr) };
+        if scratch.@(i) <= scratch.@(j) {
+            continue $ (i + 1, j, k + 1, arr.set(k, scratch.@(i)))
+        };
+        continue $ (i, j + 1, k + 1, arr.set(k, scratch.@(j)))
+    );
+    let (_, arr) = loop((i, k, arr), |(i, k, arr)|
+        if i > mid { break $ (i, arr) };
+        continue $ (i + 1, k + 1, arr.set(k, scratch.@(i)))
+    );
+    (arr, scratch)
+);
+
+// Sorts the stretch `[left, right]` of an array by sorting its halves and merging them.
+//
+// # Parameters
+// * `left` - Index of the first element of the stretch.
+// * `right` - Index of the last element of the stretch.
+// * `arrays` - The array to sort, and the scratch array.
+_merge_sort_stretch : I64 -> I64 -> (Array I32, Array I32) -> (Array I32, Array I32);
+_merge_sort_stretch = |left, right, arrays| (
+    if left >= right { arrays };
+    let mid = (left + right) / 2;
+    let arrays = _merge_sort_stretch(left, mid, arrays);
+    let arrays = _merge_sort_stretch(mid + 1, right, arrays);
+    _merge(left, mid, right, arrays)
+);
+
+// Sorts a whole array by merging, allocating the scratch array the merges need.
+//
+// # Parameters
+// * `arr` - The array to sort.
+_merge_sort : Array I32 -> Array I32;
+_merge_sort = |arr| (
+    let (arr, _) = _merge_sort_stretch(0, arr.@size - 1, (arr, fill(arr.@size, 0_I32)));
+    arr
+);
+
+// Draws an element of the unsorted array, sorts a copy of it, and draws an element of the result,
+// adding both to the running total.
+//
+// # Parameters
+// * `sort` - The sort under test.
+// * `data` - The array to sort a copy of.
+// * `state` - The running total and the generator.
+_step : (Array I32 -> Array I32) -> Array I32 -> (U32, Rng) -> (U32, Rng);
+_step = |sort, data, (total, rng)| (
+    let size = data.@size;
+    let (before, rng) = rng.next_int(size);
+    let total = total + data.@(before).u32;
+    let sorted = sort(data);
+    let (after, rng) = rng.next_int(size);
+    (total + sorted.@(after).u32, rng)
+);
+
+// The benchmark holding the array to sort, the sort under test, the running total and the
+// generator. The generator advances through the measured run, so the benchmark can be handed a
+// fresh one between the warm-up and the run.
+//
+// # Parameters
+// * `sort` - The sort under test.
+// * `data` - The array to sort a copy of.
+// * `total` - The running total.
+// * `rng` - The generator the draws come from.
+_make_bench : (Array I32 -> Array I32) -> Array I32 -> U32 -> Rng -> Bench;
+_make_bench = |sort, data, total, rng| Bench {
+    run_iters : |iterations| (
+        let (total, rng) = range(0, iterations).fold((total, rng), |_| _step(sort, data));
+        _make_bench(sort, data, total, rng)
+    ),
+    warmup : |iterations| (
+        let (total, rng) = range(0, iterations).fold((total, rng), |_| _step(sort, data));
+        _make_bench(sort, data, total, rng)
+    ),
+    reseed : some(|rng| _make_bench(sort, data, total, rng)),
+    checksum : |_| total
+};
+
+// Builds the array of pseudo-random integers the three benchmarks sort.
+//
+// # Parameters
+// * `size` - Number of integers to draw.
+// * `rng` - The generator the integers come from.
+_make_data : I64 -> Rng -> (Array I32, Rng);
+_make_data = |size, rng| (
+    range(0, size).fold((Array::empty(size), rng), |_, (data, rng)|
+        let (value, rng) = rng.next_int(1000000);
+        (data.push_back(value.i32), rng)
+    )
+);
+
+// Builds one of the three benchmarks, which differ only in the sort they apply.
+//
+// # Parameters
+// * `name` - Name of the benchmark.
+// * `sort` - The sort under test.
+_entry : String -> (Array I32 -> Array I32) -> (String, MakeBench);
+_entry = |name, sort| (name, |config, rng|
+    let (data, rng) = _make_data(config.config_i64(name, "size"), rng);
+    _make_bench(sort, data, 0_U32, rng)
+);
+
+// The hand-written quick sort's benchmark, as the runner's registry holds it.
+quick_entry : (String, MakeBench);
+quick_entry = _entry(_quick_name, |arr| _quick_sort(0, arr.@size - 1, arr));
+
+// The hand-written merge sort's benchmark, as the runner's registry holds it.
+merge_entry : (String, MakeBench);
+merge_entry = _entry(_merge_name, _merge_sort);
+
+// The standard library's sort's benchmark, as the runner's registry holds it.
+self_entry : (String, MakeBench);
+self_entry = _entry(_self_name, Array::sort);

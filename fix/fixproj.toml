@@ -13,6 +13,7 @@ files = [
     "benchmarks/mandelbrot.fix",
     "benchmarks/nbody.fix",
     "benchmarks/sieve.fix",
+    "benchmarks/sort.fix",
     "benchmarks/spectralnorm.fix",
 ]
 

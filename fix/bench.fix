@@ -13,6 +13,7 @@ import LangArena.Helper;
 type Bench = box struct {
     run_iters : I64 -> Bench,
     warmup : I64 -> Bench,
+    reseed : Option (Rng -> Bench),
     checksum : () -> U32
 };
 
@@ -26,6 +27,7 @@ make : (I64 -> Bench) -> (() -> U32) -> Bench;
 make = |run_iters, checksum| Bench {
     run_iters : run_iters,
     warmup : run_iters,
+    reseed : none(),
     checksum : checksum
 };
 
@@ -82,6 +84,12 @@ run_one = |name, make, config| (
     let expected = config.config_i64(name, "checksum").u32;
     let bench = make(config, Helper::make_rng);
     let bench = (bench.@warmup)(_warmup_iterations(name, config));
+    // The generator restarts between the warm-up and the measured run, so a benchmark that draws
+    // random numbers while it is measured draws the same stream every time.
+    let bench = match bench.@reseed {
+        none() => bench,
+        some(reseed) => reseed(Helper::make_rng)
+    };
     let (bench, seconds) = *_timed(|_| (bench.@run_iters)(iterations));
     let actual = (bench.@checksum)(());
     let ok = actual == expected;

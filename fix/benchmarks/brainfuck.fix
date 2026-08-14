@@ -181,6 +181,7 @@ _make_bench = |run, program, warmup_program, total| Bench {
         eval range(0, iterations).map(|_| run(warmup_program)).sum;
         _make_bench(run, program, warmup_program, total)
     ),
+    reseed : none(),
     checksum : |_| total
 };
 

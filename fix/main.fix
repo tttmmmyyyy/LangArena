@@ -9,6 +9,7 @@ import LangArena.Benchmarks.BufferHash;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Nbody;
 import LangArena.Benchmarks.Sieve;
+import LangArena.Benchmarks.Sort;
 import LangArena.Benchmarks.Spectralnorm;
 
 // Every benchmark this implementation provides. The runner looks names up here as it walks the
@@ -24,6 +25,9 @@ _registry = [
     Mandelbrot::entry,
     Nbody::entry,
     Sieve::entry,
+    Sort::merge_entry,
+    Sort::quick_entry,
+    Sort::self_entry,
     Spectralnorm::entry
 ];
 
