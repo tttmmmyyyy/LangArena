@@ -126,8 +126,13 @@ type Machine = struct { tape : Array U8, pos : I64, result : I64 };
 // * `machine` - The state to run them against.
 _execute : Array Op -> Machine -> Machine;
 _execute = |ops, machine| (
-    ops.to_iter.fold(machine, |op, machine|
+    // The operations are reached by index rather than through `to_iter`, which costs this
+    // benchmark 2.24x its instructions; see fixlang#329.
+    loop((0, machine), |(index, machine)|
+        if index >= ops.@size { break $ machine };
+        let op = ops.@(index);
         let pos = machine.@pos;
+        continue $ (index + 1,
         match op {
             increment() => machine.mod_tape(|tape| tape.set(pos, tape.@(pos) + 1_U8)),
             decrement() => machine.mod_tape(|tape| tape.set(pos, tape.@(pos) - 1_U8)),
@@ -142,7 +147,7 @@ _execute = |ops, machine| (
                 if machine.@tape.@(machine.@pos) == 0_U8 { break $ machine };
                 continue $ _execute(inner, machine)
             )
-        }
+        })
     )
 );
 
