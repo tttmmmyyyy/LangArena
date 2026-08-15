@@ -1,0 +1,62 @@
+// The priority queue the path searches take their next cell or vertex from.
+module LangArena.Heap;
+
+import Std;
+
+// Whether one item comes before another: their first elements decide, and their second elements
+// break the tie.
+//
+// # Parameters
+// * `right` - The item to compare against.
+// * `left` - The item to compare.
+_precedes : (I64, I64) -> (I64, I64) -> Bool;
+_precedes = |right, left| (
+    if left.@0 != right.@0 { left.@0 < right.@0 };
+    left.@1 < right.@1
+);
+
+// Puts an item into the heap.
+//
+// A heap is the array of a binary tree read breadth first: the children of the item at position `i`
+// are those at `2i+1` and `2i+2`, and neither of them comes before it.
+//
+// # Parameters
+// * `item` - The item to put in.
+// * `heap` - The heap to put it into.
+push : (I64, I64) -> Array (I64, I64) -> Array (I64, I64);
+push = |item, heap| (
+    let heap = heap.push_back(item);
+    let last = heap.@size - 1;
+    let (heap, hole) = loop((heap, last), |(heap, hole)|
+        if hole == 0 { break $ (heap, hole) };
+        let parent = (hole - 1) / 2;
+        let above = heap.@(parent);
+        if !item._precedes(above) { break $ (heap, hole) };
+        continue $ (heap.set(hole, above), parent)
+    );
+    heap.set(hole, item)
+);
+
+// Takes the item that comes before all others out of the heap, and returns it with the heap it
+// leaves behind.
+//
+// # Parameters
+// * `heap` - The heap to take from, which holds at least one item.
+pop : Array (I64, I64) -> ((I64, I64), Array (I64, I64));
+pop = |heap| (
+    let first = heap.@(0);
+    let size = heap.@size - 1;
+    let last = heap.@(size);
+    let heap = heap.pop_back;
+    if size == 0 { (first, heap) };
+    let (heap, hole) = loop((heap, 0), |(heap, hole)|
+        let left = 2 * hole + 1;
+        if left >= size { break $ (heap, hole) };
+        let right = left + 1;
+        let child = if right < size && heap.@(right)._precedes(heap.@(left)) { right } else { left };
+        let below = heap.@(child);
+        if !below._precedes(last) { break $ (heap, hole) };
+        continue $ (heap.set(hole, below), child)
+    );
+    (first, heap.set(hole, last))
+);

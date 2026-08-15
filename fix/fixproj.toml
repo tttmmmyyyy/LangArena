@@ -6,6 +6,7 @@ version = "0.1.0"
 files = [
     "main.fix",
     "helper.fix",
+    "heap.fix",
     "bench.fix",
     "benchmarks/binarytrees.fix",
     "benchmarks/brainfuck.fix",
@@ -18,7 +19,7 @@ files = [
     "benchmarks/jaro.fix",
     "benchmarks/mandelbrot.fix",
     "benchmarks/matmul.fix",
-    "benchmarks/maze_generator.fix",
+    "benchmarks/maze.fix",
     "benchmarks/nbody.fix",
     "benchmarks/neural_net.fix",
     "benchmarks/sieve.fix",

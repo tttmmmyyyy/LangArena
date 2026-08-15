@@ -1,0 +1,335 @@
+// Digs a maze out of a grid of walls, and walks the corridors it leaves from one corner to the
+// other, breadth first and with A*.
+module LangArena.Benchmarks.Maze;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Heap;
+import LangArena.Helper;
+
+_generator_name : String = "Maze::Generator";
+_bfs_name : String = "Maze::BFS";
+_astar_name : String = "Maze::AStar";
+
+// What a cell holds. The numbers are the ones the checksum of the middle cell reports.
+_wall : U8 = 0_U8;
+_space : U8 = 1_U8;
+_start : U8 = 2_U8;
+_finish : U8 = 3_U8;
+_border : U8 = 4_U8;
+
+// The value standing for a distance no walk has reached yet, larger than any distance a walk of
+// this grid can cover.
+_unreached : I64 = 2147483647;
+
+// Whether a cell can be walked through.
+//
+// # Parameters
+// * `kind` - What the cell holds.
+_is_walkable : U8 -> Bool;
+_is_walkable = |kind| kind == _space || kind == _start || kind == _finish;
+
+// The grid: what each cell holds, and the four neighbours of each cell in the order they are to be
+// visited, four entries per cell.
+type Maze = struct { w : I64, h : I64, kinds : Array U8, neighbours : Array I64 };
+
+// The cell a walk starts from.
+//
+// # Parameters
+// * `maze` - The grid to walk.
+_start_cell : Maze -> I64;
+_start_cell = |maze| maze.@w + 1;
+
+// The cell a walk is to reach.
+//
+// # Parameters
+// * `maze` - The grid to walk.
+_finish_cell : Maze -> I64;
+_finish_cell = |maze| (maze.@h - 2) * maze.@w + maze.@w - 2;
+
+// Marks the border, and gives every inner cell its four neighbours in an order the generator
+// shuffles.
+//
+// # Parameters
+// * `w` - Width of the grid in cells.
+// * `h` - Height of the grid in cells.
+// * `rng` - The generator the shuffles are drawn from.
+_build : I64 -> I64 -> Rng -> Maze;
+_build = |w, h, rng| (
+    let kinds = from_map(w * h, |i|
+        let (y, x) = (i / w, i % w);
+        if x == 0 || y == 0 || x == w - 1 || y == h - 1 { _border } else { _wall }
+    );
+    let (neighbours, _) = range(1, h - 1).fold((fill(w * h * 4, 0), rng), |y, (neighbours, rng)|
+        range(1, w - 1).fold((neighbours, rng), |x, (neighbours, rng)|
+            let base = (y * w + x) * 4;
+            let neighbours = neighbours
+                .set(base, (y - 1) * w + x)
+                .set(base + 1, (y + 1) * w + x)
+                .set(base + 2, y * w + x + 1)
+                .set(base + 3, y * w + x - 1);
+            range(0, 4).fold((neighbours, rng), |_, (neighbours, rng)|
+                let (i, rng) = rng.next_int(4);
+                let (j, rng) = rng.next_int(4);
+                if i == j { (neighbours, rng) };
+                let (a, b) = (neighbours.@(base + i), neighbours.@(base + j));
+                (neighbours.set(base + i, b).set(base + j, a), rng)
+            )
+        )
+    );
+    let maze = Maze { w : w, h : h, kinds : kinds, neighbours : neighbours };
+    let (start, finish) = (maze._start_cell, maze._finish_cell);
+    maze.mod_kinds(|kinds| kinds.set(start, _start).set(finish, _finish))
+);
+
+// Builds the grid the parameters of a benchmark describe.
+//
+// # Parameters
+// * `name` - Name of the benchmark whose parameters to read.
+// * `config` - The configuration to read.
+// * `rng` - The generator the shuffles are drawn from.
+_from_config : String -> Config -> Rng -> Maze;
+_from_config = |name, config, rng| _build(
+    max(5, config.config_i64(name, "w")), max(5, config.config_i64(name, "h")), rng
+);
+
+// Turns every dug cell back into a wall, leaving the start and the finish where they are.
+//
+// # Parameters
+// * `maze` - The grid to clear.
+_reset : Maze -> Maze;
+_reset = |maze| (
+    let (start, finish) = (maze._start_cell, maze._finish_cell);
+    maze.mod_kinds(|kinds|
+        let kinds = range(0, kinds.@size).fold(kinds, |i, kinds|
+            if kinds.@(i) != _space { kinds } else { kinds.set(i, _wall) }
+        );
+        kinds.set(start, _start).set(finish, _finish)
+    )
+);
+
+// How many of a cell's neighbours can be walked through.
+//
+// # Parameters
+// * `cell` - The cell to look around.
+// * `maze` - The grid to look in.
+_walkable_neighbours : I64 -> Maze -> I64;
+_walkable_neighbours = |cell, maze| (
+    range(0, 4).fold(0, |k, count|
+        count + if _is_walkable(maze.@kinds.@(maze.@neighbours.@(cell * 4 + k))) { 1 } else { 0 }
+    )
+);
+
+// Digs a corridor from a cell, opening every wall that has exactly one way out and following the
+// walls around it.
+//
+// # Parameters
+// * `from` - The cell to dig from.
+// * `maze` - The grid to dig in.
+_dig : I64 -> Maze -> Maze;
+_dig = |from, maze| (
+    let (maze, _) = loop((maze, [from]), |(maze, stack)|
+        if stack.@size == 0 { break $ (maze, stack) };
+        let cell = stack.@(stack.@size - 1);
+        let stack = stack.pop_back;
+        if _walkable_neighbours(cell, maze) != 1 { continue $ (maze, stack) };
+        let maze = maze.mod_kinds(set(cell, _space));
+        let stack = range(0, 4).fold(stack, |k, stack|
+            let neighbour = maze.@neighbours.@(cell * 4 + k);
+            if maze.@kinds.@(neighbour) != _wall { stack } else { stack.push_back(neighbour) }
+        );
+        continue $ (maze, stack)
+    );
+    maze
+);
+
+// Opens a wall next to the finish, and follows the walls around it until the finish has more than
+// one way out.
+//
+// # Parameters
+// * `cell` - The cell to open.
+// * `maze` - The grid to open it in.
+_open_towards_finish : I64 -> Maze -> Maze;
+_open_towards_finish = |cell, maze| (
+    let maze = maze.mod_kinds(set(cell, _space));
+    let walls = range(0, 4).fold(Array::empty(4), |k, walls|
+        let neighbour = maze.@neighbours.@(cell * 4 + k);
+        if maze.@kinds.@(neighbour) != _wall { walls } else { walls.push_back(neighbour) }
+    );
+    if _walkable_neighbours(cell, maze) > 1 { maze };
+    range(0, walls.@size).fold(maze, |i, maze| _open_towards_finish(walls.@(i), maze))
+);
+
+// Digs the maze: corridors from the start corner, then a way out of the finish corner.
+//
+// # Parameters
+// * `maze` - The grid to dig.
+_generate : Maze -> Maze;
+_generate = |maze| (
+    let start = maze._start_cell;
+    let maze = range(0, 4).fold(maze, |k, maze|
+        let neighbour = maze.@neighbours.@(start * 4 + k);
+        if maze.@kinds.@(neighbour) != _wall { maze } else { _dig(neighbour, maze) }
+    );
+    let finish = maze._finish_cell;
+    range(0, 4).fold(maze, |k, maze|
+        let neighbour = maze.@neighbours.@(finish * 4 + k);
+        if maze.@kinds.@(neighbour) != _wall { maze } else { _open_towards_finish(neighbour, maze) }
+    )
+);
+
+// The FNV hash of the dug cells, each taken as the product of its coordinates.
+//
+// # Parameters
+// * `maze` - The grid to take the checksum of.
+_maze_checksum : Maze -> U32;
+_maze_checksum = |maze| (
+    let w = maze.@w;
+    range(0, maze.@kinds.@size).fold(2166136261_U32, |i, hash|
+        if maze.@kinds.@(i) != _space { hash };
+        (hash.bit_xor(((i / w) * (i % w)).u32)) * 16777619_U32
+    )
+);
+
+// The benchmark holding the grid and the sum of the middle cells so far.
+//
+// # Parameters
+// * `maze` - The grid to dig.
+// * `total` - The sum of the middle cells so far.
+_make_generator_bench : Maze -> U32 -> Bench;
+_make_generator_bench = |maze, total| Bench::make(
+    |iterations| (
+        let (maze, total) = range(0, iterations).fold((maze, total), |_, (maze, total)|
+            let maze = maze._reset._generate;
+            let middle = (maze.@h / 2) * maze.@w + maze.@w / 2;
+            (maze, total + maze.@kinds.@(middle).u32)
+        );
+        _make_generator_bench(maze, total)
+    ),
+    |_| total + _maze_checksum(maze)
+);
+
+// The cells of a shortest walk from the start to the finish, or an empty array when the walls
+// separate them.
+//
+// # Parameters
+// * `maze` - The grid to walk.
+_bfs : Maze -> Array I64;
+_bfs = |maze| (
+    let (kinds, neighbours) = (maze.@kinds, maze.@neighbours);
+    let (start, target) = (maze._start_cell, maze._finish_cell);
+    if start == target { [start] };
+    let visited = fill(maze.@w * maze.@h, false).set(start, true);
+    // The cells reached so far, each with the position in this record of the cell it was reached
+    // from. Reading the record from the front takes the cells in the order they were reached, which
+    // is the order the walk is to visit them in.
+    let (reached, found) = loop((visited, [(start, -1)], 0), |(visited, reached, head)|
+        if head == reached.@size { break $ (reached, none()) };
+        let (cell, _) = reached.@(head);
+        let (visited, reached, found) = loop((visited, reached, 0), |(visited, reached, k)|
+            if k == 4 { break $ (visited, reached, none()) };
+            let neighbour = neighbours.@(cell * 4 + k);
+            if neighbour == target { break $ (visited, reached, some(head)) };
+            if !_is_walkable(kinds.@(neighbour)) || visited.@(neighbour) {
+                continue $ (visited, reached, k + 1)
+            };
+            continue $ (visited.set(neighbour, true), reached.push_back((neighbour, head)), k + 1)
+        );
+        if found.is_some { break $ (reached, found) };
+        continue $ (visited, reached, head + 1)
+    );
+    if found.is_none { Array::empty(0) };
+    loop(([target], found.as_some), |(walk, at)|
+        let (cell, from) = reached.@(at);
+        let walk = walk.push_back(cell);
+        if from < 0 { break $ walk.reverse };
+        continue $ (walk, from)
+    )
+);
+
+// The cells of the walk A* finds from the start to the finish, or an empty array when the walls
+// separate them.
+//
+// # Parameters
+// * `maze` - The grid to walk.
+_astar : Maze -> Array I64;
+_astar = |maze| (
+    let (kinds, neighbours) = (maze.@kinds, maze.@neighbours);
+    let w = maze.@w;
+    let (start, target) = (maze._start_cell, maze._finish_cell);
+    if start == target { [start] };
+    // How many steps a walk over open ground would still take, which no walk of the corridors can
+    // better, so the walk this guides is a shortest one.
+    let estimate = |cell| (cell / w - target / w).abs + (cell % w - target % w).abs;
+    let came_from = fill(w * maze.@h, -1);
+    let g_score = fill(w * maze.@h, _unreached).set(start, 0);
+    let (came_from, found) = loop(
+        (came_from, g_score, Heap::push((estimate(start), start), Array::empty(64))),
+        |(came_from, g_score, open)|
+        if open.@size == 0 { break $ (came_from, false) };
+        let ((_, cell), open) = Heap::pop(open);
+        if cell == target { break $ (came_from, true) };
+        let reached_at = g_score.@(cell) + 1;
+        let (came_from, g_score, open) = loop(
+            (came_from, g_score, open, 0), |(came_from, g_score, open, k)|
+            if k == 4 { break $ (came_from, g_score, open) };
+            let neighbour = neighbours.@(cell * 4 + k);
+            if !_is_walkable(kinds.@(neighbour)) || reached_at >= g_score.@(neighbour) {
+                continue $ (came_from, g_score, open, k + 1)
+            };
+            continue $ (
+                came_from.set(neighbour, cell),
+                g_score.set(neighbour, reached_at),
+                Heap::push((reached_at + estimate(neighbour), neighbour), open),
+                k + 1
+            )
+        );
+        continue $ (came_from, g_score, open)
+    );
+    if !found { Array::empty(0) };
+    loop(([], target), |(walk, at)|
+        let walk = walk.push_back(at);
+        let from = came_from.@(at);
+        if from < 0 { break $ walk.reverse };
+        continue $ (walk, from)
+    )
+);
+
+// The benchmark holding the dug grid, the walk found last, and the sum of the walk lengths so far.
+//
+// # Parameters
+// * `walk_maze` - The walk to run over the grid.
+// * `maze` - The dug grid to walk.
+// * `walk` - The cells of the walk found last.
+// * `total` - The sum of the walk lengths so far.
+_make_walk_bench : (Maze -> Array I64) -> Maze -> Array I64 -> U32 -> Bench;
+_make_walk_bench = |walk_maze, maze, walk, total| Bench::make(
+    |iterations| (
+        let (walk, total) = range(0, iterations).fold((walk, total), |_, (_, total)|
+            let walk = walk_maze(maze);
+            (walk, total + walk.@size.u32)
+        );
+        _make_walk_bench(walk_maze, maze, walk, total)
+    ),
+    |_| (
+        if walk.@size == 0 { total };
+        let middle = walk.@(walk.@size / 2);
+        total + ((middle % maze.@w) * (middle / maze.@w)).u32
+    )
+);
+
+// The benchmarks, as the runner's registry holds them.
+generator_entry : (String, MakeBench);
+generator_entry = (
+    _generator_name, |config, rng| _make_generator_bench(_from_config(_generator_name, config, rng), 0_U32)
+);
+
+bfs_entry : (String, MakeBench);
+bfs_entry = (_bfs_name, |config, rng|
+    _make_walk_bench(_bfs, _from_config(_bfs_name, config, rng)._generate, Array::empty(0), 0_U32)
+);
+
+astar_entry : (String, MakeBench);
+astar_entry = (_astar_name, |config, rng|
+    _make_walk_bench(_astar, _from_config(_astar_name, config, rng)._generate, Array::empty(0), 0_U32)
+);

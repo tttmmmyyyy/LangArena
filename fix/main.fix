@@ -14,7 +14,7 @@ import LangArena.Benchmarks.GraphPath;
 import LangArena.Benchmarks.Jaro;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Matmul;
-import LangArena.Benchmarks.MazeGenerator;
+import LangArena.Benchmarks.Maze;
 import LangArena.Benchmarks.Nbody;
 import LangArena.Benchmarks.NeuralNet;
 import LangArena.Benchmarks.Sieve;
@@ -44,19 +44,21 @@ _registry = [
     Jaro::entry,
     Mandelbrot::entry,
     Matmul::single_entry,
-    MazeGenerator::entry,
     Matmul::t16_entry,
     Matmul::t4_entry,
     Matmul::t8_entry,
+    Maze::astar_entry,
+    Maze::bfs_entry,
+    Maze::generator_entry,
     Nbody::entry,
     NeuralNet::entry,
     Sieve::entry,
     Sort::merge_entry,
     Sort::quick_entry,
     Sort::self_entry,
+    Spectralnorm::entry,
     TextRaytracer::entry,
-    Words::entry,
-    Spectralnorm::entry
+    Words::entry
 ];
 
 _default_config_path : String = "../run.js";
