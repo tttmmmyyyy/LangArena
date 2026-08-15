@@ -81,6 +81,7 @@ _registry = [
     Sort::self_entry,
     Spectralnorm::entry,
     Template::parse_entry,
+    Template::regexp_entry,
     TextRaytracer::entry,
     Words::entry
 ];

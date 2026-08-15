@@ -4,10 +4,13 @@ module LangArena.Benchmarks.Template;
 import Std;
 import Hash;
 import HashMap;
+import RegExp;
+import RegExp.RegExpNFA;
 import LangArena.Bench;
 import LangArena.Helper;
 
 _parse_name : String = "Template::Parse";
+_regex_name : String = "Template::Regex";
 
 // The names, surnames and cities the rows of the page are filled with.
 _first_names : Array String;
@@ -106,26 +109,65 @@ _render = |template| (
     rendered
 );
 
+// The pattern the placeholders are found by. The name is written as the bytes other than `}`, which
+// ends each match at the first `}}` following the name it starts on.
+_placeholder : String = "\\{\\{([^}]*)\\}\\}";
+
+// Fills the page by searching it for the placeholders: the stretch before each match is copied over
+// and the match itself is replaced by the value its name stands for, with the stretch after the last
+// match copied over at the end.
+//
+// # Parameters
+// * `nfa` - The automaton of `_placeholder`, group 1 of which is the name.
+// * `template` - The page to fill and the values to fill it with.
+_render_regexp : NFA -> Template -> Array U8;
+_render_regexp = |nfa, template| (
+    let (text, values) = (template.@text, template.@values);
+    let (rendered, last) = nfa.search_all(text).to_iter.fold(
+        (Array::empty(text.@size * 3 / 2), 0), |groups, (rendered, last)|
+        let (begin, end) = groups.@(0);
+        let (name_begin, name_end) = groups.@(1);
+        let rendered = rendered.append(text.get_sub(last, begin));
+        let rendered = match values.find(text._trimmed(name_begin, name_end)) {
+            none() => rendered,
+            some(value) => rendered.append(value)
+        };
+        (rendered, end)
+    );
+    rendered.append(text.get_sub(last, text.@size))
+);
+
 // The benchmark holding the page, what the last filling produced, and the sum of the lengths so far.
 //
 // # Parameters
+// * `render` - Fills the page.
 // * `template` - The page to fill and the values to fill it with.
 // * `rendered` - What the last filling produced.
 // * `total` - The sum of the lengths so far.
-_make_bench : Template -> Array U8 -> U32 -> Bench;
-_make_bench = |template, rendered, total| Bench::make(
+_make_bench : (Template -> Array U8) -> Template -> Array U8 -> U32 -> Bench;
+_make_bench = |render, template, rendered, total| Bench::make(
     |iterations| (
         let (rendered, total) = range(0, iterations).fold((rendered, total), |_, (_, total)|
-            let rendered = _render(template);
+            let rendered = render(template);
             (rendered, total + rendered.@size.u32)
         );
-        _make_bench(template, rendered, total)
+        _make_bench(render, template, rendered, total)
     ),
     |_| total + checksum_bytes(rendered)
 );
 
-// The benchmark, as the runner's registry holds it.
+// The benchmark that fills the page by walking it byte by byte, as the runner's registry holds it.
 parse_entry : (String, MakeBench);
 parse_entry = (_parse_name, |config, _|
-    _make_bench(_build(config.config_i64(_parse_name, "count")), Array::empty(0), 0_U32)
+    _make_bench(_render, _build(config.config_i64(_parse_name, "count")), Array::empty(0), 0_U32)
+);
+
+// The benchmark that fills the page with a regular expression, as the runner's registry holds it.
+// The pattern is compiled once here, so that the measured run holds the searching alone.
+regexp_entry : (String, MakeBench);
+regexp_entry = (_regex_name, |config, _|
+    let nfa = RegExp::compile(_placeholder, "g").as_ok.@nfa;
+    _make_bench(
+        _render_regexp(nfa), _build(config.config_i64(_regex_name, "count")), Array::empty(0), 0_U32
+    )
 );
