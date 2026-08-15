@@ -12,6 +12,7 @@ import LangArena.Benchmarks.CompressArith;
 import LangArena.Benchmarks.CompressBwt;
 import LangArena.Benchmarks.CompressHuffman;
 import LangArena.Benchmarks.CompressLzw;
+import LangArena.Benchmarks.CsvParse;
 import LangArena.Benchmarks.Distance;
 import LangArena.Benchmarks.Fannkuchredux;
 import LangArena.Benchmarks.GameOfLife;
@@ -49,6 +50,7 @@ _registry = [
     CompressHuffman::encode_entry,
     CompressLzw::decode_entry,
     CompressLzw::encode_entry,
+    CsvParse::entry,
     Distance::jaro_entry,
     Distance::ngram_entry,
     Fannkuchredux::entry,

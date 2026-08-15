@@ -1,0 +1,124 @@
+// Reads three coordinates out of every row of a comma-separated text whose other fields are quoted
+// and hold commas of their own.
+module LangArena.Benchmarks.CsvParse;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "CSV::Parse";
+
+// The mark that wraps a field holding commas or marks of its own.
+_quotation : U8 = '\x22';
+
+// Writes the text the benchmark reads: one row per point, its coordinates standing in the second,
+// fourth and sixth of six fields, the others quoted and holding commas and quotation marks that a
+// reader has to see through.
+//
+// # Parameters
+// * `rows` - How many rows to write.
+// * `rng` - The generator the coordinates come from.
+_generate_text : I64 -> Rng -> Array U8;
+_generate_text = |rows, rng| (
+    let (text, _) = range(0, rows).fold((Array::empty(rows * 96), rng), |i, (text, rng)|
+        let (x, rng) = rng.next_float(1.0);
+        let (z, rng) = rng.next_float(1.0);
+        let (y, rng) = rng.next_float(1.0);
+        let label = (i % 100).to_string;
+        let flag = if i % 2 == 0 { "true" } else { "false" };
+        let text = text
+            .append_str("\"point ").push_back('A' + (i % 26).u8)
+            .append_str("\\n, \"\"" + label + "\"\"\",")
+            .append_str(x.to_string_precision(10_U8) + ",,")
+            .append_str(z.to_string_precision(10_U8) + ",")
+            .append_str("\"[" + flag + "\\n, " + label + "]\",")
+            .append_str(y.to_string_precision(10_U8) + "\n");
+        (text, rng)
+    );
+    text
+);
+
+// Where the field starting at a position ends and where the field after it starts. A field wrapped
+// in quotation marks runs to the matching mark, and two marks inside stand for one mark of the
+// field, so neither a comma nor a mark inside ends it.
+//
+// # Parameters
+// * `from` - Where the field starts.
+// * `text` - The text to read.
+_field_bounds : I64 -> Array U8 -> (I64, I64);
+_field_bounds = |from, text| (
+    let n = text.@size;
+    if from < n && text.@(from) == _quotation {
+        let closing = loop(from + 1, |i|
+            if i >= n { break $ i };
+            if text.@(i) != _quotation { continue $ i + 1 };
+            if i + 1 < n && text.@(i + 1) == _quotation { continue $ i + 2 };
+            break $ i
+        );
+        (closing + 1, closing + 2)
+    };
+    let end = loop(from, |i|
+        if i >= n || text.@(i) == ',' || text.@(i) == '\n' { break $ i };
+        continue $ i + 1
+    );
+    (end, end + 1)
+);
+
+// The number a stretch of the text spells.
+//
+// # Parameters
+// * `from` - Where the number starts.
+// * `to` - One past where it ends.
+// * `text` - The text to read.
+_number_between : I64 -> I64 -> Array U8 -> F64;
+_number_between = |from, to, text| text.get_sub(from, to).string_of.from_string.as_ok;
+
+// The points the text holds.
+//
+// # Parameters
+// * `text` - The text to read.
+_parse_points : Array U8 -> Array (F64, F64, F64);
+_parse_points = |text| (
+    let n = text.@size;
+    let (points, _) = loop((Array::empty(n / 64), 0), |(points, at)|
+        if at >= n { break $ (points, at) };
+        let (x, z, y, at) = range(0, 6).fold((0.0, 0.0, 0.0, at), |field, (x, z, y, at)|
+            let (end, next) = text._field_bounds(at);
+            if field == 1 { (text._number_between(at, end), z, y, next) };
+            if field == 3 { (x, text._number_between(at, end), y, next) };
+            if field == 5 { (x, z, text._number_between(at, end), next) };
+            (x, z, y, next)
+        );
+        continue $ (points.push_back((x, y, z)), at)
+    );
+    points
+);
+
+// The benchmark holding the text and the sum of the checksums of the averages so far.
+//
+// # Parameters
+// * `text` - The text to read.
+// * `total` - The sum of the checksums so far.
+_make_bench : Array U8 -> U32 -> Bench;
+_make_bench = |text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_|
+            let points = _parse_points(text);
+            if points.@size == 0 { 0_U32 };
+            let (x, y, z) = range(0, points.@size).fold((0.0, 0.0, 0.0), |i, (x, y, z)|
+                let point = points.@(i);
+                (x + point.@0, y + point.@1, z + point.@2)
+            );
+            let count = points.@size.f64;
+            checksum_float(x / count) + checksum_float(y / count) + checksum_float(z / count)
+        ).sum;
+        _make_bench(text, total)
+    ),
+    |_| total
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, rng|
+    _make_bench(_generate_text(config.config_i64(_name, "rows"), rng), 0_U32)
+);

@@ -18,6 +18,7 @@ files = [
     "benchmarks/compress_bwt.fix",
     "benchmarks/compress_huffman.fix",
     "benchmarks/compress_lzw.fix",
+    "benchmarks/csv_parse.fix",
     "benchmarks/distance.fix",
     "benchmarks/fannkuchredux.fix",
     "benchmarks/game_of_life.fix",

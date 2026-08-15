@@ -69,6 +69,14 @@ checksum_bytes = |bytes| (
 bytes_of : String -> Array U8;
 bytes_of = |str| str.get_bytes.pop_back;
 
+// Appends the bytes of a string to a buffer.
+//
+// # Parameters
+// * `text` - The string to append.
+// * `buffer` - The buffer to append to.
+append_str : String -> Array U8 -> Array U8;
+append_str = |text, buffer| text.bytes_of.to_iter.fold(buffer, |byte, buffer| buffer.push_back(byte));
+
 // A string made of the given bytes.
 //
 // # Parameters

@@ -19,14 +19,6 @@ type Node = box union {
     assignment : (Array U8, Node)
 };
 
-// Appends the bytes of a string to a buffer.
-//
-// # Parameters
-// * `text` - The string to append.
-// * `buffer` - The buffer to append to.
-_append : String -> Array U8 -> Array U8;
-_append = |text, buffer| text.bytes_of.to_iter.fold(buffer, |byte, buffer| buffer.push_back(byte));
-
 // The right-hand side of the `i`-th generated assignment, chosen from ten shapes.
 //
 // # Parameters
@@ -61,16 +53,16 @@ _right_hand_side = |shape, i, v| (
 // * `rng` - The generator the shapes are drawn from.
 _generate_program : I64 -> Rng -> Array U8;
 _generate_program = |n, rng| (
-    let text = Array::empty(n * 64)._append("v0 = 1\n");
+    let text = Array::empty(n * 64).append_str("v0 = 1\n");
     let text = range(0, 10).fold(text, |i, text|
         let v = i + 1;
-        text._append("v" + v.to_string + " = v" + (v - 1).to_string + " + " + v.to_string + "\n")
+        text.append_str("v" + v.to_string + " = v" + (v - 1).to_string + " + " + v.to_string + "\n")
     );
     let (text, _) = range(0, n).fold((text, rng), |i, (text, rng)|
         let v = i + 10;
-        let text = text._append("v" + v.to_string + " = v" + (v - 1).to_string + " + ");
+        let text = text.append_str("v" + v.to_string + " = v" + (v - 1).to_string + " + ");
         let (shape, rng) = rng.next_int(10);
-        (text._append(_right_hand_side(shape, i, v))._append("\n"), rng)
+        (text.append_str(_right_hand_side(shape, i, v)).append_str("\n"), rng)
     );
     text
 );
