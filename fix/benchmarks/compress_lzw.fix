@@ -1,0 +1,114 @@
+// Codes a periodic text by naming with a number every run of bytes it has already met, and reads
+// the numbered runs back.
+module LangArena.Benchmarks.CompressLzw;
+
+import Std;
+import Hash;
+import HashMap;
+import LangArena.Bench;
+import LangArena.Benchmarks.Compress;
+import LangArena.Helper;
+
+_encode_name : String = "Compress::LZWEncode";
+_decode_name : String = "Compress::LZWDecode";
+
+// Codes a text. The longest run the dictionary already holds is written out as its number, two
+// bytes to a number, and the run one byte longer goes into the dictionary under the next number.
+//
+// # Parameters
+// * `text` - The text to code.
+_code : Array U8 -> Array U8;
+_code = |text| (
+    if text.@size == 0 { Array::empty(0) };
+    // The dictionary starts out holding the run of every single byte value under its own value, so
+    // the numbers it hands out afterwards start above them.
+    let dict = range(0, 256).fold(HashMap::empty(4096), |value, dict|
+        dict.insert([value.u8], value)
+    );
+    let (coded, dict, _, run) = range(1, text.@size).fold(
+        (Array::empty(text.@size * 2), dict, 256, [text.@(0)]),
+        |i, (coded, dict, next_number, run)|
+        let byte = text.@(i);
+        let longer = run.push_back(byte);
+        if dict.contains_key(longer) { (coded, dict, next_number, longer) };
+        let number = dict.find(run).as_some;
+        let coded = coded.push_back((number / 256).u8).push_back(number.u8);
+        (coded, dict.insert(longer, next_number), next_number + 1, [byte])
+    );
+    let number = dict.find(run).as_some;
+    coded.push_back((number / 256).u8).push_back(number.u8)
+);
+
+// Reads a coded text back. Each number names a run the dictionary holds, and the run read before it
+// followed by that run's first byte goes into the dictionary under the next number, which puts the
+// dictionary back in the state the coding had it in.
+//
+// A number one past the dictionary names the run being built as it is read: the run before it
+// followed by its own first byte, which is the first byte of the run before it.
+//
+// # Parameters
+// * `coded` - The coded text to read.
+_read : Array U8 -> Array U8;
+_read = |coded| (
+    if coded.@size == 0 { Array::empty(0) };
+    let dict = from_map(256, |value| [value.u8]);
+    let first = dict.@(coded.@(0).i64 * 256 + coded.@(1).i64);
+    let (text, _, _, _) = loop(
+        (Array::empty(coded.@size * 2).append(first), dict, first, 2),
+        |(text, dict, previous, at)|
+        if at == coded.@size { break $ (text, dict, previous, at) };
+        let number = coded.@(at).i64 * 256 + coded.@(at + 1).i64;
+        let run = if number < dict.@size { dict.@(number) } else { previous.push_back(previous.@(0)) };
+        continue $ (
+            text.append(run), dict.push_back(previous.push_back(run.@(0))), run, at + 2
+        )
+    );
+    text
+);
+
+// The coding benchmark, which counts the bytes each coding produces.
+//
+// # Parameters
+// * `text` - The text to code.
+// * `total` - The count of the codings so far.
+_make_encode_bench : Array U8 -> U32 -> Bench;
+_make_encode_bench = |text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| _code(text).@size.u32).sum;
+        _make_encode_bench(text, total)
+    ),
+    |_| total
+);
+
+// The reading benchmark, which counts the bytes each reading produces and adds a hundred thousand
+// once the reading is shown to give the text back.
+//
+// # Parameters
+// * `text` - The text the coded text came from.
+// * `coded` - The coded text to read.
+// * `read` - What the last reading gave back.
+// * `total` - The count of the readings so far.
+_make_decode_bench : Array U8 -> Array U8 -> Array U8 -> U32 -> Bench;
+_make_decode_bench = |text, coded, read, total| Bench::make(
+    |iterations| (
+        let (read, total) = range(0, iterations).fold((read, total), |_, (_, total)|
+            let read = _read(coded);
+            (read, total + read.@size.u32)
+        );
+        _make_decode_bench(text, coded, read, total)
+    ),
+    |_| total + if read == text { 100000_U32 } else { 0_U32 }
+);
+
+// The coding benchmark, as the runner's registry holds it.
+encode_entry : (String, MakeBench);
+encode_entry = (_encode_name, |config, _|
+    _make_encode_bench(generate_text(config.config_i64(_encode_name, "size")), 0_U32)
+);
+
+// The reading benchmark, as the runner's registry holds it.
+decode_entry : (String, MakeBench);
+decode_entry = (_decode_name, |config, _|
+    let text = generate_text(config.config_i64(_decode_name, "size"));
+    _make_decode_bench(text, _code(text), Array::empty(0), 0_U32)
+);

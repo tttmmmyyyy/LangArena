@@ -1,0 +1,223 @@
+// Codes a periodic text as one number in the unit interval, narrowed by a byte at a time, and reads
+// the coded number back.
+module LangArena.Benchmarks.CompressArith;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Benchmarks.Compress;
+import LangArena.Helper;
+
+_encode_name : String = "Compress::ArithEncode";
+_decode_name : String = "Compress::ArithDecode";
+
+// The interval the coding narrows, held to 32 bits: its whole width, and the marks the coding
+// carries a bit out at.
+_whole : U64 = 0xFFFFFFFF_U64;
+_half : U64 = 0x80000000_U64;
+_quarter : U64 = 0x40000000_U64;
+_three_quarters : U64 = 0xC0000000_U64;
+
+// A coded text: the bytes it was coded into, and how often each byte value occurs in it, which is
+// what the intervals are cut from.
+type Coded = struct { bytes : Array U8, frequencies : Array I64 };
+
+// The bit stream a coding writes into: the bytes finished so far, the bits of the byte in hand, and
+// how many of them are filled.
+type BitWriter = struct { bytes : Array U8, partial : U8, filled : I64 };
+
+// Writes one bit, the highest unfilled bit of the byte in hand.
+//
+// # Parameters
+// * `bit` - The bit to write.
+// * `writer` - The stream to write into.
+_write_bit : U8 -> BitWriter -> BitWriter;
+_write_bit = |bit, writer| (
+    let partial = writer.@partial.shift_left(1_U8).bit_or(bit);
+    if writer.@filled == 7 {
+        writer.mod_bytes(push_back(partial)).set_partial(0_U8).set_filled(0)
+    };
+    writer.set_partial(partial).set_filled(writer.@filled + 1)
+);
+
+// Writes the same bit a number of times.
+//
+// # Parameters
+// * `count` - How many times to write it.
+// * `bit` - The bit to write.
+// * `writer` - The stream to write into.
+_write_bits : I64 -> U8 -> BitWriter -> BitWriter;
+_write_bits = |count, bit, writer| range(0, count).fold(writer, |_, writer| writer._write_bit(bit));
+
+// The bytes of the stream, with the byte in hand padded out with zeroes behind its last bit.
+//
+// # Parameters
+// * `writer` - The stream to finish.
+_finish : BitWriter -> Array U8;
+_finish = |writer| (
+    if writer.@filled == 0 { writer.@bytes };
+    writer.@bytes.push_back(writer.@partial.shift_left((8 - writer.@filled).u8))
+);
+
+// The interval each byte value takes of the whole, as where it begins and where it ends, with the
+// width of the whole.
+//
+// # Parameters
+// * `frequencies` - How often each byte value occurs.
+_intervals : Array I64 -> (Array I64, Array I64, I64);
+_intervals = |frequencies| (
+    let (begins, ends, total) = range(0, 256).fold(
+        (fill(256, 0), fill(256, 0), 0), |value, (begins, ends, total)|
+        let next = total + frequencies.@(value);
+        (begins.set(value, total), ends.set(value, next), next)
+    );
+    (begins, ends, total)
+);
+
+// Codes a text: the interval is narrowed to the part the next byte takes of it, and every bit the
+// two ends have come to agree on is written out. Where the interval straddles the middle without
+// either end settling, the bits it will take are counted up and written once one of them settles.
+//
+// # Parameters
+// * `text` - The text to code.
+_code : Array U8 -> Coded;
+_code = |text| (
+    let frequencies = byte_frequencies(text);
+    let (begins, ends, total) = _intervals(frequencies);
+    let empty = BitWriter { bytes : Array::empty(text.@size), partial : 0_U8, filled : 0 };
+    let (writer, low, _, held) = range(0, text.@size).fold(
+        (empty, 0_U64, _whole, 0), |i, (writer, low, high, held)|
+        let value = text.@(i).i64;
+        let width = high - low + 1_U64;
+        let high = low + width * ends.@(value).u64 / total.u64 - 1_U64;
+        let low = low + width * begins.@(value).u64 / total.u64;
+        loop((writer, low, high, held), |(writer, low, high, held)|
+            if high >= _half && low < _half && (low < _quarter || high >= _three_quarters) {
+                break $ (writer, low, high, held)
+            };
+            let (writer, low, high, held) = if high < _half {
+                (writer._write_bit(0_U8)._write_bits(held, 1_U8), low, high, 0)
+            } else if low >= _half {
+                (writer._write_bit(1_U8)._write_bits(held, 0_U8), low - _half, high - _half, 0)
+            } else {
+                (writer, low - _quarter, high - _quarter, held + 1)
+            };
+            continue $ (
+                writer,
+                low.shift_left(1_U64),
+                high.shift_left(1_U64).bit_or(1_U64).bit_and(_whole),
+                held
+            )
+        )
+    );
+    let held = held + 1;
+    let writer = if low < _quarter {
+        writer._write_bit(0_U8)._write_bits(held, 1_U8)
+    } else {
+        writer._write_bit(1_U8)._write_bits(held, 0_U8)
+    };
+    Coded { bytes : writer._finish, frequencies : frequencies }
+);
+
+// The bit at a position of a byte array, counting the bits of each byte from the highest down, and
+// reading zero past the end.
+//
+// # Parameters
+// * `at` - Which bit to read.
+// * `bytes` - The bytes to read it from.
+_bit_at : I64 -> Array U8 -> U64;
+_bit_at = |at, bytes| (
+    if at / 8 >= bytes.@size { 0_U64 };
+    bytes.@(at / 8).shift_right((7 - at % 8).u8).bit_and(1_U8).u64
+);
+
+// Reads a coded text back: the interval is narrowed the same way as it was written, and the byte
+// whose part of it holds the coded number is the byte the coding narrowed it by.
+//
+// # Parameters
+// * `coded` - The coded text to read.
+_read : Coded -> Array U8;
+_read = |coded| (
+    let bytes = coded.@bytes;
+    let (begins, ends, total) = _intervals(coded.@frequencies);
+    let number = range(0, 32).fold(0_U64, |at, number|
+        number.shift_left(1_U64).bit_or(bytes._bit_at(at))
+    );
+    let (text, _, _, _, _) = range(0, total).fold(
+        (Array::empty(total), number, 0_U64, _whole, 32), |_, (text, number, low, high, at)|
+        let width = high - low + 1_U64;
+        let scaled = ((number - low + 1_U64) * total.u64 - 1_U64) / width;
+        let value = loop(0, |value|
+            if value == 255 || ends.@(value).u64 > scaled { break $ value };
+            continue $ value + 1
+        );
+        let high = low + width * ends.@(value).u64 / total.u64 - 1_U64;
+        let low = low + width * begins.@(value).u64 / total.u64;
+        let (number, low, high, at) = loop((number, low, high, at), |(number, low, high, at)|
+            if high >= _half && low < _half && (low < _quarter || high >= _three_quarters) {
+                break $ (number, low, high, at)
+            };
+            let (number, low, high) = if high < _half {
+                (number, low, high)
+            } else if low >= _half {
+                (number - _half, low - _half, high - _half)
+            } else {
+                (number - _quarter, low - _quarter, high - _quarter)
+            };
+            continue $ (
+                number.shift_left(1_U64).bit_or(bytes._bit_at(at)),
+                low.shift_left(1_U64),
+                high.shift_left(1_U64).bit_or(1_U64),
+                at + 1
+            )
+        );
+        (text.push_back(value.u8), number, low, high, at)
+    );
+    text
+);
+
+// The coding benchmark, which counts the bytes each coding produces.
+//
+// # Parameters
+// * `text` - The text to code.
+// * `total` - The count of the codings so far.
+_make_encode_bench : Array U8 -> U32 -> Bench;
+_make_encode_bench = |text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| _code(text).@bytes.@size.u32).sum;
+        _make_encode_bench(text, total)
+    ),
+    |_| total
+);
+
+// The reading benchmark, which counts the bytes each reading produces and adds a hundred thousand
+// once the reading is shown to give the text back.
+//
+// # Parameters
+// * `text` - The text the coded text came from.
+// * `coded` - The coded text to read.
+// * `read` - What the last reading gave back.
+// * `total` - The count of the readings so far.
+_make_decode_bench : Array U8 -> Coded -> Array U8 -> U32 -> Bench;
+_make_decode_bench = |text, coded, read, total| Bench::make(
+    |iterations| (
+        let (read, total) = range(0, iterations).fold((read, total), |_, (_, total)|
+            let read = _read(coded);
+            (read, total + read.@size.u32)
+        );
+        _make_decode_bench(text, coded, read, total)
+    ),
+    |_| total + if read == text { 100000_U32 } else { 0_U32 }
+);
+
+// The coding benchmark, as the runner's registry holds it.
+encode_entry : (String, MakeBench);
+encode_entry = (_encode_name, |config, _|
+    _make_encode_bench(generate_text(config.config_i64(_encode_name, "size")), 0_U32)
+);
+
+// The reading benchmark, as the runner's registry holds it.
+decode_entry : (String, MakeBench);
+decode_entry = (_decode_name, |config, _|
+    let text = generate_text(config.config_i64(_decode_name, "size"));
+    _make_decode_bench(text, _code(text), Array::empty(0), 0_U32)
+);

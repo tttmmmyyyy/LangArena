@@ -4,21 +4,11 @@ module LangArena.Benchmarks.CompressBwt;
 
 import Std;
 import LangArena.Bench;
+import LangArena.Benchmarks.Compress;
 import LangArena.Helper;
 
 _encode_name : String = "Compress::BWTEncode";
 _decode_name : String = "Compress::BWTDecode";
-
-// The text the benchmarks transform is this word laid end to end.
-_pattern : Array U8;
-_pattern = "ABRACADABRA".bytes_of;
-
-// Lays the pattern end to end until the text is the given length.
-//
-// # Parameters
-// * `size` - Length of the text in bytes.
-_generate_text : I64 -> Array U8;
-_generate_text = |size| from_map(size, |i| _pattern.@(i % _pattern.@size));
 
 // Where each byte value's run begins once the bytes are sorted, which is the first column of the
 // rotation matrix.
@@ -27,9 +17,7 @@ _generate_text = |size| from_map(size, |i| _pattern.@(i % _pattern.@size));
 // * `bytes` - The bytes to count.
 _bucket_starts : Array U8 -> Array I64;
 _bucket_starts = |bytes| (
-    let counts = range(0, bytes.@size).fold(fill(256, 0), |i, counts|
-        counts.mod(bytes.@(i).i64, add(1))
-    );
+    let counts = byte_frequencies(bytes);
     let (starts, _) = range(0, 256).fold((fill(256, 0), 0), |value, (starts, total)|
         (starts.set(value, total), total + counts.@(value))
     );
@@ -154,13 +142,13 @@ _make_decode_bench = |text, transformed, original_row, inverted, total| Bench::m
 // The encoding benchmark, as the runner's registry holds it.
 encode_entry : (String, MakeBench);
 encode_entry = (_encode_name, |config, _|
-    _make_encode_bench(_generate_text(config.config_i64(_encode_name, "size")), 0_U32)
+    _make_encode_bench(generate_text(config.config_i64(_encode_name, "size")), 0_U32)
 );
 
 // The decoding benchmark, as the runner's registry holds it.
 decode_entry : (String, MakeBench);
 decode_entry = (_decode_name, |config, _|
-    let text = _generate_text(config.config_i64(_decode_name, "size"));
+    let text = generate_text(config.config_i64(_decode_name, "size"));
     let (transformed, original_row) = _bwt_transform(text);
     _make_decode_bench(text, transformed, original_row, Array::empty(0), 0_U32)
 );

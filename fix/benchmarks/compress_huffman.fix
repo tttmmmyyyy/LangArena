@@ -1,0 +1,189 @@
+// Codes a periodic text with a Huffman code built from how often its bytes occur, and reads the
+// coded text back.
+module LangArena.Benchmarks.CompressHuffman;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Benchmarks.Compress;
+import LangArena.Helper;
+
+_encode_name : String = "Compress::HuffEncode";
+_decode_name : String = "Compress::HuffDecode";
+
+// A node of the code tree: the byte a code names, or the two nodes a bit chooses between.
+type Node = box union { leaf : U8, branch : (Node, Node) };
+
+// A coded text: the bytes it was coded into, how many bits of them carry it, and how often each
+// byte value occurs in it, which is what the code tree is built from.
+type Coded = struct { bytes : Array U8, bits : I64, frequencies : Array I64 };
+
+// Puts a node into a list ordered by frequency, behind the nodes of the same frequency.
+//
+// # Parameters
+// * `item` - The frequency and the node to put in.
+// * `nodes` - The list to put it into.
+_insert_ordered : (I64, Node) -> Array (I64, Node) -> Array (I64, Node);
+_insert_ordered = |item, nodes| (
+    let at = loop(0, |i|
+        if i == nodes.@size || nodes.@(i).@0 > item.@0 { break $ i };
+        continue $ i + 1
+    );
+    from_map(nodes.@size + 1, |i|
+        if i < at { nodes.@(i) };
+        if i == at { item };
+        nodes.@(i - 1)
+    )
+);
+
+// The code tree of a text, built by joining the two least frequent nodes over and over, so that the
+// rarer a byte is the longer the path down to it. A text of one distinct byte is given a second,
+// unreachable leaf so that its byte is still reached by a step.
+//
+// # Parameters
+// * `frequencies` - How often each byte value occurs.
+_build_tree : Array I64 -> Option Node;
+_build_tree = |frequencies| (
+    let nodes = range(0, 256).fold(Array::empty(256), |value, nodes|
+        if frequencies.@(value) == 0 { nodes };
+        nodes.push_back((frequencies.@(value), leaf(value.u8)))
+    );
+    let nodes = nodes.sort_stable_by(|(a, b)| a.@0 < b.@0);
+    if nodes.@size == 0 { none() };
+    if nodes.@size == 1 { some $ branch((nodes.@(0).@1, leaf(0_U8))) };
+    some $ loop(nodes, |nodes|
+        if nodes.@size == 1 { break $ nodes.@(0).@1 };
+        let (left_frequency, left) = nodes.@(0);
+        let (right_frequency, right) = nodes.@(1);
+        let rest = nodes.get_sub(2, nodes.@size);
+        continue $ rest._insert_ordered((left_frequency + right_frequency, branch((left, right))))
+    )
+);
+
+// Reads the code of every byte off the tree: the path down to its leaf, a zero bit for every step
+// left and a one bit for every step right.
+//
+// # Parameters
+// * `code` - The path taken down to this node.
+// * `length` - How many steps that path has.
+// * `node` - The node to read.
+// * `tables` - The codes and the code lengths read so far.
+_read_codes : I64 -> I64 -> Node -> (Array I64, Array I64) -> (Array I64, Array I64);
+_read_codes = |code, length, node, tables| (
+    if node.is_leaf {
+        let value = node.as_leaf.i64;
+        if length == 0 && value == 0 { tables };
+        let (codes, lengths) = tables;
+        (codes.set(value, code), lengths.set(value, length))
+    };
+    let (left, right) = node.as_branch;
+    tables._read_codes(code * 2, length + 1, left)._read_codes(code * 2 + 1, length + 1, right)
+);
+
+// Codes a text, and reports the coded bytes with how many bits of them carry the text. The bits of
+// each code are written from the highest down, and the bits of the text from the highest bit of
+// each byte down.
+//
+// # Parameters
+// * `text` - The text to code.
+// * `codes` - The code of each byte value.
+// * `lengths` - How many bits each byte value's code has.
+_code_text : Array U8 -> Array I64 -> Array I64 -> (Array U8, I64);
+_code_text = |text, codes, lengths| (
+    let (coded, partial, filled, bits) = range(0, text.@size).fold(
+        (Array::empty(text.@size * 2), 0_U8, 0, 0), |i, (coded, partial, filled, bits)|
+        let value = text.@(i).i64;
+        let (code, length) = (codes.@(value), lengths.@(value));
+        range(0, length).fold((coded, partial, filled, bits), |step, (coded, partial, filled, bits)|
+            let partial = if code.bit_and(1.shift_left(length - 1 - step)) == 0 { partial } else {
+                partial.bit_or(1_U8.shift_left((7 - filled).u8))
+            };
+            if filled == 7 { (coded.push_back(partial), 0_U8, 0, bits + 1) };
+            (coded, partial, filled + 1, bits + 1)
+        )
+    );
+    (if filled == 0 { coded } else { coded.push_back(partial) }, bits)
+);
+
+// Counts the bytes of a text, builds the code tree from the counts, and codes the text with it.
+//
+// # Parameters
+// * `text` - The text to code.
+_code : Array U8 -> Coded;
+_code = |text| (
+    let frequencies = byte_frequencies(text);
+    let tables = (fill(256, 0), fill(256, 0));
+    let (codes, lengths) = match _build_tree(frequencies) {
+        none() => tables,
+        some(tree) => tables._read_codes(0, 0, tree)
+    };
+    let (bytes, bits) = _code_text(text, codes, lengths);
+    Coded { bytes : bytes, bits : bits, frequencies : frequencies }
+);
+
+// Reads a coded text back, by walking down the tree one bit at a time and starting again from the
+// root at every leaf it reaches.
+//
+// # Parameters
+// * `tree` - The code tree it was coded with.
+// * `coded` - The coded text.
+_read_text : Node -> Coded -> Array U8;
+_read_text = |tree, coded| (
+    let (bytes, bits) = (coded.@bytes, coded.@bits);
+    let (text, _) = loop((Array::empty(bits), tree, 0), |(text, node, at)|
+        if at == bits { break $ (text, at) };
+        let bit = bytes.@(at / 8).shift_right((7 - at % 8).u8).bit_and(1_U8);
+        let (left, right) = node.as_branch;
+        let node = if bit == 0_U8 { left } else { right };
+        if !node.is_leaf { continue $ (text, node, at + 1) };
+        let value = node.as_leaf;
+        continue $ (if value == 0_U8 { text } else { text.push_back(value) }, tree, at + 1)
+    );
+    text
+);
+
+// The coding benchmark, which counts the bytes each coding produces.
+//
+// # Parameters
+// * `text` - The text to code.
+// * `total` - The count of the codings so far.
+_make_encode_bench : Array U8 -> U32 -> Bench;
+_make_encode_bench = |text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| _code(text).@bytes.@size.u32).sum;
+        _make_encode_bench(text, total)
+    ),
+    |_| total
+);
+
+// The reading benchmark, which counts the bytes each reading produces and adds a hundred thousand
+// once the reading is shown to give the text back.
+//
+// # Parameters
+// * `text` - The text the coded text came from.
+// * `coded` - The coded text to read.
+// * `read` - What the last reading gave back.
+// * `total` - The count of the readings so far.
+_make_decode_bench : Array U8 -> Coded -> Array U8 -> U32 -> Bench;
+_make_decode_bench = |text, coded, read, total| Bench::make(
+    |iterations| (
+        let (read, total) = range(0, iterations).fold((read, total), |_, (_, total)|
+            let read = coded._read_text(_build_tree(coded.@frequencies).as_some);
+            (read, total + read.@size.u32)
+        );
+        _make_decode_bench(text, coded, read, total)
+    ),
+    |_| total + if read == text { 100000_U32 } else { 0_U32 }
+);
+
+// The coding benchmark, as the runner's registry holds it.
+encode_entry : (String, MakeBench);
+encode_entry = (_encode_name, |config, _|
+    _make_encode_bench(generate_text(config.config_i64(_encode_name, "size")), 0_U32)
+);
+
+// The reading benchmark, as the runner's registry holds it.
+decode_entry : (String, MakeBench);
+decode_entry = (_decode_name, |config, _|
+    let text = generate_text(config.config_i64(_decode_name, "size"));
+    _make_decode_bench(text, _code(text), Array::empty(0), 0_U32)
+);

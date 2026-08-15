@@ -1,0 +1,25 @@
+// The text the compression benchmarks work over.
+module LangArena.Benchmarks.Compress;
+
+import Std;
+import LangArena.Helper;
+
+// The word the text is laid out from.
+_pattern : Array U8;
+_pattern = "ABRACADABRA".bytes_of;
+
+// Lays the pattern end to end until the text is the given length.
+//
+// # Parameters
+// * `size` - Length of the text in bytes.
+generate_text : I64 -> Array U8;
+generate_text = |size| from_map(size, |i| _pattern.@(i % _pattern.@size));
+
+// How often each of the 256 byte values occurs in a text.
+//
+// # Parameters
+// * `text` - The text to count the bytes of.
+byte_frequencies : Array U8 -> Array I64;
+byte_frequencies = |text| (
+    range(0, text.@size).fold(fill(256, 0), |i, counts| counts.mod(text.@(i).i64, add(1)))
+);

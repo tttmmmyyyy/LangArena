@@ -7,7 +7,10 @@ import LangArena.Benchmarks.Binarytrees;
 import LangArena.Benchmarks.Brainfuck;
 import LangArena.Benchmarks.BufferHash;
 import LangArena.Benchmarks.CalculatorAst;
+import LangArena.Benchmarks.CompressArith;
 import LangArena.Benchmarks.CompressBwt;
+import LangArena.Benchmarks.CompressHuffman;
+import LangArena.Benchmarks.CompressLzw;
 import LangArena.Benchmarks.Fannkuchredux;
 import LangArena.Benchmarks.GameOfLife;
 import LangArena.Benchmarks.GraphPath;
@@ -34,8 +37,14 @@ _registry = [
     BufferHash::crc32_entry,
     BufferHash::sha256_entry,
     CalculatorAst::entry,
+    CompressArith::decode_entry,
+    CompressArith::encode_entry,
     CompressBwt::decode_entry,
     CompressBwt::encode_entry,
+    CompressHuffman::decode_entry,
+    CompressHuffman::encode_entry,
+    CompressLzw::decode_entry,
+    CompressLzw::encode_entry,
     Fannkuchredux::entry,
     GameOfLife::entry,
     GraphPath::astar_entry,
