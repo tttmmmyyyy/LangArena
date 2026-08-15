@@ -1,0 +1,152 @@
+// Writes a document of coordinates as JSON, and reads the coordinates back out of it.
+module LangArena.Benchmarks.Json;
+
+import Std;
+import Math;
+import Minilib.Collection.OrderedMap;
+import Minilib.Encoding.Json;
+import Minilib.Encoding.Json.JsonDecoder;
+import Minilib.Encoding.Json.JsonEncoder;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_generate_name : String = "Json::Generate";
+_parse_dom_name : String = "Json::ParseDom";
+_parse_mapping_name : String = "Json::ParseMapping";
+
+// The document opens with the array of coordinates, which is what the writing benchmark counts.
+_opening : String = "{\"coordinates\":";
+
+// The coordinates are rounded to eight decimal places, so eight places write every one of them
+// back exactly.
+_encoding : EncodeParam;
+_encoding = EncodeParam::default.set_number_prec(8_U8);
+
+// A number rounded to eight decimal places.
+//
+// # Parameters
+// * `value` - The number to round.
+_rounded : F64 -> F64;
+_rounded = |value| (value * 100000000.0).round / 100000000.0;
+
+// Writes the document the benchmarks work over: one entry per coordinate, each holding its three
+// numbers, a name, and a table of options.
+//
+// # Parameters
+// * `coords` - How many coordinates the document holds.
+// * `rng` - The generator the numbers come from.
+_build : I64 -> Rng -> Json;
+_build = |coords, rng| (
+    let (entries, _) = range(0, coords).fold((Array::empty(coords), rng), |_, (entries, rng)|
+        let (x, rng) = rng.next_float(1.0);
+        let (y, rng) = rng.next_float(1.0);
+        let (z, rng) = rng.next_float(1.0);
+        let (marker, rng) = rng.next_float(1.0);
+        let (tag, rng) = rng.next_int(10000);
+        let entry = Json::to_object([
+            ("x", Json::number(_rounded(x))),
+            ("y", Json::number(_rounded(y))),
+            ("z", Json::number(_rounded(z))),
+            ("name", Json::string(marker.to_string_precision(7_U8) + " " + tag.to_string)),
+            ("opts", Json::to_object([
+                ("1", Json::array([Json::number(1.0), Json::bool(true)]))
+            ]))
+        ]);
+        (entries.push_back(entry), rng)
+    );
+    Json::to_object([
+        ("coordinates", Json::array(entries)), ("info", Json::string("some info"))
+    ])
+);
+
+// The entries of a document, as the three numbers each of them holds.
+//
+// # Parameters
+// * `document` - The document to read.
+_points : Json -> Array (F64, F64, F64);
+_points = |document| (
+    document.as_object.OrderedMap::find("coordinates").as_some.as_array.map(|entry|
+        let entry = entry.as_object;
+        (
+            entry.OrderedMap::find("x").as_some.as_number,
+            entry.OrderedMap::find("y").as_some.as_number,
+            entry.OrderedMap::find("z").as_some.as_number
+        )
+    )
+);
+
+// The checksum of the three averages of a list of points, which is what the reading benchmarks
+// report.
+//
+// # Parameters
+// * `points` - The points to average.
+_average_checksum : Array (F64, F64, F64) -> U32;
+_average_checksum = |points| (
+    let count = points.@size.f64;
+    let (x, y, z) = range(0, points.@size).fold((0.0, 0.0, 0.0), |i, (x, y, z)|
+        let point = points.@(i);
+        (x + point.@0, y + point.@1, z + point.@2)
+    );
+    checksum_float(x / count) + checksum_float(y / count) + checksum_float(z / count)
+);
+
+// The writing benchmark, which counts the writings that opened with the array of coordinates.
+//
+// # Parameters
+// * `document` - The document to write.
+// * `total` - The count of the writings so far.
+_make_generate_bench : Json -> U32 -> Bench;
+_make_generate_bench = |document, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_|
+            let text = encode_with_param(_encoding, document);
+            if text.find(_opening, 0) == some(0) { 1_U32 } else { 0_U32 }
+        ).sum;
+        _make_generate_bench(document, total)
+    ),
+    |_| total
+);
+
+// The reading benchmarks, which read the document back and report the checksums of the averages of
+// the coordinates it held.
+//
+// # Parameters
+// * `read` - The way the coordinates are taken out of the text.
+// * `text` - The text to read.
+// * `total` - The sum of the checksums so far.
+_make_parse_bench : (String -> Array (F64, F64, F64)) -> String -> U32 -> Bench;
+_make_parse_bench = |read, text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| _average_checksum(read(text))).sum;
+        _make_parse_bench(read, text, total)
+    ),
+    |_| total
+);
+
+// Reads a document into a tree and takes the coordinates out of it.
+//
+// # Parameters
+// * `text` - The text to read.
+_read : String -> Array (F64, F64, F64);
+_read = |text| _points(JsonDecoder::decode(text).as_ok);
+
+// The benchmarks, as the runner's registry holds them. Both readings go through the same tree,
+// since a document is read into a tree whichever shape the coordinates are then carried into.
+generate_entry : (String, MakeBench);
+generate_entry = (_generate_name, |config, rng|
+    _make_generate_bench(_build(config.config_i64(_generate_name, "coords"), rng), 0_U32)
+);
+
+parse_dom_entry : (String, MakeBench);
+parse_dom_entry = (_parse_dom_name, |config, rng| _make_parse_bench(
+    _read,
+    encode_with_param(_encoding, _build(config.config_i64(_parse_dom_name, "coords"), rng)),
+    0_U32
+));
+
+parse_mapping_entry : (String, MakeBench);
+parse_mapping_entry = (_parse_mapping_name, |config, rng| _make_parse_bench(
+    _read,
+    encode_with_param(_encoding, _build(config.config_i64(_parse_mapping_name, "coords"), rng)),
+    0_U32
+));

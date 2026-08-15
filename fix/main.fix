@@ -18,6 +18,7 @@ import LangArena.Benchmarks.Distance;
 import LangArena.Benchmarks.Fannkuchredux;
 import LangArena.Benchmarks.GameOfLife;
 import LangArena.Benchmarks.GraphPath;
+import LangArena.Benchmarks.Json;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Matmul;
 import LangArena.Benchmarks.Maze;
@@ -61,6 +62,9 @@ _registry = [
     GraphPath::astar_entry,
     GraphPath::bfs_entry,
     GraphPath::dfs_entry,
+    Json::generate_entry,
+    Json::parse_dom_entry,
+    Json::parse_mapping_entry,
     Mandelbrot::entry,
     Matmul::single_entry,
     Matmul::t16_entry,
