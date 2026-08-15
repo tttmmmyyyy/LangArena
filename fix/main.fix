@@ -18,6 +18,7 @@ import LangArena.Benchmarks.Nbody;
 import LangArena.Benchmarks.NeuralNet;
 import LangArena.Benchmarks.Sieve;
 import LangArena.Benchmarks.TextRaytracer;
+import LangArena.Benchmarks.Words;
 import LangArena.Benchmarks.Sort;
 import LangArena.Benchmarks.Spectralnorm;
 
@@ -50,6 +51,7 @@ _registry = [
     Sort::quick_entry,
     Sort::self_entry,
     TextRaytracer::entry,
+    Words::entry,
     Spectralnorm::entry
 ];
 

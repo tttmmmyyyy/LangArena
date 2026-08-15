@@ -23,6 +23,7 @@ files = [
     "benchmarks/sieve.fix",
     "benchmarks/sort.fix",
     "benchmarks/text_raytracer.fix",
+    "benchmarks/words.fix",
     "benchmarks/spectralnorm.fix",
 ]
 
@@ -46,3 +47,8 @@ git = { url = "https://github.com/pt9999/fixlang-minilib-collection.git" }
 name = "math"
 version = "2.0.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-math.git" }
+
+[[dependencies]]
+name = "hashmap"
+version = "2.0.1"
+git = { url = "https://github.com/tttmmmyyyy/fixlang-hashmap.git" }

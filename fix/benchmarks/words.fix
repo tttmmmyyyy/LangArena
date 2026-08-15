@@ -1,0 +1,91 @@
+// Counts how often each word occurs in a generated text, and reports the one that occurs most.
+module LangArena.Benchmarks.Words;
+
+import Std;
+import Hash;
+import HashMap;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Etc::Words";
+
+// The letters the words are drawn from.
+_alphabet : Array U8;
+_alphabet = "abcdefghijklmnopqrstuvwxyz".bytes_of;
+
+// Writes the text the benchmark counts: `words` words of between three and `word_len + 5` letters,
+// separated by single spaces.
+//
+// # Parameters
+// * `words` - How many words to write.
+// * `word_len` - One past the largest number of letters drawn beyond the three every word has.
+// * `rng` - The generator the words come from.
+_generate_text : I64 -> I64 -> Rng -> Array U8;
+_generate_text = |words, word_len, rng| (
+    let (text, _) = range(0, words).fold((Array::empty(words * (word_len + 1)), rng), |i, (text, rng)|
+        let (first, rng) = rng.next_int(word_len);
+        let (second, rng) = rng.next_int(3);
+        let (text, rng) = range(0, first + second + 3).fold((text, rng), |_, (text, rng)|
+            let (letter, rng) = rng.next_int(_alphabet.@size);
+            (text.push_back(_alphabet.@(letter)), rng)
+        );
+        (if i < words - 1 { text.push_back(' ') } else { text }, rng)
+    );
+    text
+);
+
+// How often each word occurs in the text.
+//
+// # Parameters
+// * `text` - The text to count the words of.
+_count_words : Array U8 -> HashMap (Array U8) U32;
+_count_words = |text| (
+    let size = text.@size;
+    let (frequencies, _) = loop((HashMap::empty(1024), 0), |(frequencies, from)|
+        let start = loop(from, |i| if i < size && text.@(i) == ' ' { continue $ i + 1 } else { break $ i });
+        if start >= size { break $ (frequencies, start) };
+        let end = loop(start, |i| if i < size && text.@(i) != ' ' { continue $ i + 1 } else { break $ i });
+        let word = text.get_sub(start, end);
+        let count = frequencies.find_or(word, 0_U32);
+        continue $ (frequencies.insert(word, count + 1_U32), end)
+    );
+    frequencies
+);
+
+// The word that occurs most often, with how often it occurs.
+//
+// # Parameters
+// * `frequencies` - How often each word occurs.
+_most_frequent : HashMap (Array U8) U32 -> (Array U8, U32);
+_most_frequent = |frequencies| (
+    frequencies.to_iter.fold((Array::empty(0), 0_U32), |(word, count), (best_word, best_count)|
+        if count > best_count { (word, count) } else { (best_word, best_count) }
+    )
+);
+
+// The benchmark holding the text and the sum of the counts so far.
+//
+// # Parameters
+// * `text` - The text to count the words of.
+// * `total` - The sum of the counts so far.
+_make_bench : Array U8 -> U32 -> Bench;
+_make_bench = |text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_|
+            let frequencies = _count_words(text);
+            let (word, count) = _most_frequent(frequencies);
+            count + Helper::checksum_bytes(word) + frequencies.@size.u32
+        ).sum;
+        _make_bench(text, total)
+    ),
+    |_| total
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, rng|
+    _make_bench(
+        _generate_text(config.config_i64(_name, "words"), config.config_i64(_name, "word_len"), rng),
+        0_U32
+    )
+);
