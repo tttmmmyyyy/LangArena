@@ -19,7 +19,10 @@ _rounds_per_iteration : I64 = 1000;
 
 // The network. The neurons and the synapses are each held as arrays of their fields, and a neuron
 // names the synapses that reach it and leave it by their index.
-type Net = struct {
+//
+// The training rewrites one field at a time, thousands of times per round, and a value of this many
+// fields is written back whole every time it is not behind a pointer.
+type Net = box struct {
     thresholds : Array F64,
     prev_thresholds : Array F64,
     outputs : Array F64,
