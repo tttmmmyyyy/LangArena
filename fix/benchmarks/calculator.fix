@@ -1,11 +1,14 @@
-// Parses a generated program of assignments into syntax trees, once per iteration.
-module LangArena.Benchmarks.CalculatorAst;
+// Parses a generated program of assignments into syntax trees, and works the trees out.
+module LangArena.Benchmarks.Calculator;
 
 import Std;
+import Hash;
+import HashMap;
 import LangArena.Bench;
 import LangArena.Helper;
 
-_name : String = "Calculator::Ast";
+_ast_name : String = "Calculator::Ast";
+_interpreter_name : String = "Calculator::Interpreter";
 
 // A parsed expression. An operation and an assignment carry the trees they are built from, so the
 // type stands behind a pointer.
@@ -181,13 +184,90 @@ _parse = |text| (
     expressions
 );
 
+// One number divided by another, cut towards zero.
+//
+// # Parameters
+// * `divisor` - The number to divide by, which is not zero.
+// * `dividend` - The number to divide.
+_divided_by : I64 -> I64 -> I64;
+_divided_by = |divisor, dividend| (
+    if (dividend >= 0 && divisor > 0) || (dividend < 0 && divisor < 0) { dividend / divisor };
+    -(dividend.abs / divisor.abs)
+);
+
+// The value an operator gives two numbers. Dividing and taking a remainder by zero gives zero, and
+// so does an operator the parser never writes.
+//
+// # Parameters
+// * `op` - The operator.
+// * `left` - The number on its left.
+// * `right` - The number on its right.
+_apply : U8 -> I64 -> I64 -> I64;
+_apply = |op, left, right| (
+    if op == '+' { left + right };
+    if op == '-' { left - right };
+    if op == '*' { left * right };
+    if right == 0 { 0 };
+    if op == '/' { left._divided_by(right) };
+    if op == '%' { left - left._divided_by(right) * right };
+    0
+);
+
+// The value of an expression, with the variables it leaves behind. A variable never assigned to
+// reads as zero.
+//
+// # Parameters
+// * `node` - The expression to work out.
+// * `variables` - The value each variable holds.
+_evaluate : Node -> HashMap (Array U8) I64 -> (I64, HashMap (Array U8) I64);
+_evaluate = |node, variables| (
+    if node.is_number { (node.as_number, variables) };
+    if node.is_variable { (variables.find_or(node.as_variable, 0), variables) };
+    if node.is_operation {
+        let (op, left, right) = node.as_operation;
+        let (left_value, variables) = _evaluate(left, variables);
+        let (right_value, variables) = _evaluate(right, variables);
+        (_apply(op, left_value, right_value), variables)
+    };
+    let (name, expression) = node.as_assignment;
+    let (value, variables) = _evaluate(expression, variables);
+    (value, variables.insert(name, value))
+);
+
+// The value the last expression of a program takes, every assignment on the way being remembered
+// for the expressions that follow it.
+//
+// # Parameters
+// * `expressions` - The expressions of the program, in the order they are written.
+_run : Array Node -> I64;
+_run = |expressions| (
+    let (value, _) = range(0, expressions.@size).fold((0, HashMap::empty(1024)), |i, (_, variables)|
+        _evaluate(expressions.@(i), variables)
+    );
+    value
+);
+
+// The benchmark holding the parsed program and the sum of the values it worked out so far.
+//
+// # Parameters
+// * `expressions` - The expressions of the program, in the order they are written.
+// * `total` - The sum of the values worked out so far.
+_make_interpreter_bench : Array Node -> U32 -> Bench;
+_make_interpreter_bench = |expressions, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| _run(expressions).u32).sum;
+        _make_interpreter_bench(expressions, total)
+    ),
+    |_| total
+);
+
 // The benchmark holding the program text and the sum of the parses so far.
 //
 // # Parameters
 // * `text` - The program text.
 // * `total` - The sum of the parses so far.
-_make_bench : Array U8 -> U32 -> Bench;
-_make_bench = |text, total| Bench::make(
+_make_ast_bench : Array U8 -> U32 -> Bench;
+_make_ast_bench = |text, total| Bench::make(
     |iterations| (
         let total = total + range(0, iterations).map(|_|
             let expressions = _parse(text);
@@ -199,13 +279,18 @@ _make_bench = |text, total| Bench::make(
                 count
             }
         ).sum;
-        _make_bench(text, total)
+        _make_ast_bench(text, total)
     ),
     |_| total
 );
 
-// The benchmark, as the runner's registry holds it.
-entry : (String, MakeBench);
-entry = (_name, |config, rng|
-    _make_bench(_generate_program(config.config_i64(_name, "operations"), rng), 0_U32)
+// The benchmarks, as the runner's registry holds them.
+ast_entry : (String, MakeBench);
+ast_entry = (_ast_name, |config, rng|
+    _make_ast_bench(_generate_program(config.config_i64(_ast_name, "operations"), rng), 0_U32)
 );
+
+interpreter_entry : (String, MakeBench);
+interpreter_entry = (_interpreter_name, |config, rng| _make_interpreter_bench(
+    _parse(_generate_program(config.config_i64(_interpreter_name, "operations"), rng)), 0_U32
+));

@@ -7,7 +7,7 @@ import LangArena.Benchmarks.Base64;
 import LangArena.Benchmarks.Binarytrees;
 import LangArena.Benchmarks.Brainfuck;
 import LangArena.Benchmarks.BufferHash;
-import LangArena.Benchmarks.CalculatorAst;
+import LangArena.Benchmarks.Calculator;
 import LangArena.Benchmarks.CompressArith;
 import LangArena.Benchmarks.CompressBwt;
 import LangArena.Benchmarks.CompressHuffman;
@@ -39,7 +39,8 @@ _registry = [
     Brainfuck::recursion_entry,
     BufferHash::crc32_entry,
     BufferHash::sha256_entry,
-    CalculatorAst::entry,
+    Calculator::ast_entry,
+    Calculator::interpreter_entry,
     CompressArith::decode_entry,
     CompressArith::encode_entry,
     CompressBwt::decode_entry,
