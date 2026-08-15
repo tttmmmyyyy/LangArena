@@ -1,0 +1,239 @@
+// Trains a small network to compute exclusive-or by back-propagation, a thousand rounds of the four
+// input pairs per iteration.
+module LangArena.Benchmarks.NeuralNet;
+
+import Std;
+import Math;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Etc::NeuralNet";
+
+// How far along the gradient each round steps, and how much of the last step it keeps.
+_rate : F64 = 0.3;
+_learning_rate : F64 = 1.0;
+_momentum : F64 = 0.3;
+
+// How many rounds of the four input pairs one iteration trains for.
+_rounds_per_iteration : I64 = 1000;
+
+// The network. The neurons and the synapses are each held as arrays of their fields, and a neuron
+// names the synapses that reach it and leave it by their index.
+type Net = struct {
+    thresholds : Array F64,
+    prev_thresholds : Array F64,
+    outputs : Array F64,
+    errors : Array F64,
+    weights : Array F64,
+    prev_weights : Array F64,
+    sources : Array I64,
+    dests : Array I64,
+    synapses_in : Array (Array I64),
+    synapses_out : Array (Array I64),
+    hidden : Array I64,
+    output : Array I64
+};
+
+// The synapses laid down so far, with the generator the next weight is drawn from.
+type Wiring = struct {
+    weights : Array F64,
+    sources : Array I64,
+    dests : Array I64,
+    synapses_in : Array (Array I64),
+    synapses_out : Array (Array I64),
+    rng : Rng
+};
+
+// Lays down a synapse from every neuron of one layer to every neuron of the next, drawing each
+// weight as the synapse is laid.
+//
+// # Parameters
+// * `from_layer` - The neurons the synapses leave.
+// * `to_layer` - The neurons the synapses reach.
+// * `wiring` - The synapses laid down so far.
+_link_layers : Array I64 -> Array I64 -> Wiring -> Wiring;
+_link_layers = |from_layer, to_layer, wiring| (
+    range(0, from_layer.@size).fold(wiring, |a, wiring|
+        range(0, to_layer.@size).fold(wiring, |b, wiring|
+            let (source, dest) = (from_layer.@(a), to_layer.@(b));
+            let index = wiring.@weights.@size;
+            let (value, rng) = wiring.@rng.next_float(1.0);
+            wiring.set_rng(rng)
+                  .mod_weights(push_back(value * 2.0 - 1.0))
+                  .mod_sources(push_back(source))
+                  .mod_dests(push_back(dest))
+                  .mod_synapses_in(mod(dest, push_back(index)))
+                  .mod_synapses_out(mod(source, push_back(index)))
+        )
+    )
+);
+
+// Builds a network of the given shape, drawing every threshold and weight from the generator.
+//
+// # Parameters
+// * `inputs` - How many neurons take the input.
+// * `hidden` - How many neurons stand between the input and the output.
+// * `outputs` - How many neurons give the output.
+// * `rng` - The generator the thresholds and weights come from.
+_build : I64 -> I64 -> I64 -> Rng -> Net;
+_build = |inputs, hidden, outputs, rng| (
+    let total = inputs + hidden + outputs;
+    let (thresholds, rng) = range(0, total).fold((Array::empty(total), rng), |_, (values, rng)|
+        let (value, rng) = rng.next_float(1.0);
+        (values.push_back(value * 2.0 - 1.0), rng)
+    );
+    let input_layer = from_map(inputs, |i| i);
+    let hidden_layer = from_map(hidden, |i| inputs + i);
+    let output_layer = from_map(outputs, |i| inputs + hidden + i);
+    let empty_links : Array (Array I64) = from_map(total, |_| Array::empty(16));
+    let wiring = Wiring {
+        weights : Array::empty(64), sources : Array::empty(64), dests : Array::empty(64),
+        synapses_in : empty_links, synapses_out : empty_links, rng : rng
+    };
+    let wiring = wiring._link_layers(input_layer, hidden_layer)._link_layers(hidden_layer, output_layer);
+    Net {
+        thresholds : thresholds,
+        prev_thresholds : thresholds,
+        outputs : fill(total, 0.0),
+        errors : fill(total, 0.0),
+        weights : wiring.@weights,
+        prev_weights : wiring.@weights,
+        sources : wiring.@sources,
+        dests : wiring.@dests,
+        synapses_in : wiring.@synapses_in,
+        synapses_out : wiring.@synapses_out,
+        hidden : hidden_layer,
+        output : output_layer
+    }
+);
+
+// The logistic function, which turns the weighted sum reaching a neuron into its output.
+//
+// # Parameters
+// * `activation` - The weighted sum reaching the neuron.
+_logistic : F64 -> F64;
+_logistic = |activation| 1.0 / (1.0 + Math::exp(-activation));
+
+// Sets the output of every neuron of a layer from the outputs of the neurons feeding it.
+//
+// # Parameters
+// * `layer` - The neurons to set the output of.
+// * `net` - The network to work in.
+_activate_layer : Array I64 -> Net -> Net;
+_activate_layer = |layer, net| (
+    range(0, layer.@size).fold(net, |i, net|
+        let neuron = layer.@(i);
+        let incoming = net.@synapses_in.@(neuron);
+        let activation = range(0, incoming.@size).fold(0.0, |k, sum|
+            let synapse = incoming.@(k);
+            sum + net.@weights.@(synapse) * net.@outputs.@(net.@sources.@(synapse))
+        );
+        net.mod_outputs(set(neuron, _logistic(activation - net.@thresholds.@(neuron))))
+    )
+);
+
+// Runs the input through the network.
+//
+// # Parameters
+// * `inputs` - The values the input neurons take.
+// * `net` - The network to run.
+_feed_forward : Array F64 -> Net -> Net;
+_feed_forward = |inputs, net| (
+    let net = range(0, inputs.@size).fold(net, |i, net| net.mod_outputs(set(i, inputs.@(i))));
+    net._activate_layer(net.@hidden)._activate_layer(net.@output)
+);
+
+// Moves the weights reaching a neuron, and its threshold, along the error it was found to carry.
+//
+// # Parameters
+// * `neuron` - The neuron to adjust.
+// * `error` - The error the neuron was found to carry.
+// * `net` - The network to adjust.
+_adjust : I64 -> F64 -> Net -> Net;
+_adjust = |neuron, error, net| (
+    let net = net.mod_errors(set(neuron, error));
+    let incoming = net.@synapses_in.@(neuron);
+    let net = range(0, incoming.@size).fold(net, |k, net|
+        let synapse = incoming.@(k);
+        let source_output = net.@outputs.@(net.@sources.@(synapse));
+        let weight = net.@weights.@(synapse);
+        let moved = weight + _rate * _learning_rate * error * source_output
+            + _momentum * (weight - net.@prev_weights.@(synapse));
+        net.mod_weights(set(synapse, moved)).mod_prev_weights(set(synapse, weight))
+    );
+    let threshold = net.@thresholds.@(neuron);
+    let moved = threshold - _rate * _learning_rate * error
+        + _momentum * (threshold - net.@prev_thresholds.@(neuron));
+    net.mod_thresholds(set(neuron, moved)).mod_prev_thresholds(set(neuron, threshold))
+);
+
+// Runs one input through the network and moves its weights towards the target.
+//
+// # Parameters
+// * `inputs` - The values the input neurons take.
+// * `targets` - The values the output neurons are to reach.
+// * `net` - The network to train.
+_train : Array F64 -> Array F64 -> Net -> Net;
+_train = |inputs, targets, net| (
+    let net = net._feed_forward(inputs);
+    let net = range(0, targets.@size).fold(net, |i, net|
+        let neuron = net.@output.@(i);
+        let output = net.@outputs.@(neuron);
+        let error = (targets.@(i) - output) * output * (1.0 - output);
+        net._adjust(neuron, error)
+    );
+    // Every hidden error is read from the weights as they stood before this round adjusted them.
+    let hidden_errors = from_map(net.@hidden.@size, |i|
+        let neuron = net.@hidden.@(i);
+        let outgoing = net.@synapses_out.@(neuron);
+        let sum = range(0, outgoing.@size).fold(0.0, |k, sum|
+            let synapse = outgoing.@(k);
+            sum + net.@prev_weights.@(synapse) * net.@errors.@(net.@dests.@(synapse))
+        );
+        let output = net.@outputs.@(neuron);
+        sum * output * (1.0 - output)
+    );
+    range(0, net.@hidden.@size).fold(net, |i, net| net._adjust(net.@hidden.@(i), hidden_errors.@(i)))
+);
+
+// The four input pairs and what the network is to answer for each.
+_lessons : Array (Array F64, Array F64);
+_lessons = [
+    ([0.0, 0.0], [0.0]),
+    ([1.0, 0.0], [1.0]),
+    ([0.0, 1.0], [1.0]),
+    ([1.0, 1.0], [0.0])
+];
+
+// The benchmark holding the network under training.
+//
+// # Parameters
+// * `net` - The network under training.
+_make_bench : Net -> Bench;
+_make_bench = |net| Bench::make(
+    |iterations| (
+        let net = range(0, iterations).fold(net, |_, net|
+            range(0, _rounds_per_iteration).fold(net, |_, net|
+                range(0, _lessons.@size).fold(net, |i, net|
+                    let (inputs, targets) = _lessons.@(i);
+                    net._train(inputs, targets)
+                )
+            )
+        );
+        _make_bench(net)
+    ),
+    |_| (
+        let sum = range(0, _lessons.@size).fold(0.0, |i, sum|
+            let (inputs, _) = _lessons.@(i);
+            let answered = net._feed_forward(inputs);
+            range(0, answered.@output.@size).fold(sum, |k, sum|
+                sum + answered.@outputs.@(answered.@output.@(k))
+            )
+        );
+        Helper::checksum_float(sum)
+    )
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |_, rng| _make_bench(_build(2, 10, 1, rng)));

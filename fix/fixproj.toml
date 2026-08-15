@@ -19,6 +19,7 @@ files = [
     "benchmarks/matmul.fix",
     "benchmarks/maze_generator.fix",
     "benchmarks/nbody.fix",
+    "benchmarks/neural_net.fix",
     "benchmarks/sieve.fix",
     "benchmarks/sort.fix",
     "benchmarks/text_raytracer.fix",

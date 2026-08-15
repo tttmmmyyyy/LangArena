@@ -15,6 +15,7 @@ import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Matmul;
 import LangArena.Benchmarks.MazeGenerator;
 import LangArena.Benchmarks.Nbody;
+import LangArena.Benchmarks.NeuralNet;
 import LangArena.Benchmarks.Sieve;
 import LangArena.Benchmarks.TextRaytracer;
 import LangArena.Benchmarks.Sort;
@@ -43,6 +44,7 @@ _registry = [
     Matmul::t4_entry,
     Matmul::t8_entry,
     Nbody::entry,
+    NeuralNet::entry,
     Sieve::entry,
     Sort::merge_entry,
     Sort::quick_entry,
