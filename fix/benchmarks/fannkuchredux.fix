@@ -1,0 +1,107 @@
+// Walks every permutation of the first `n` numbers, counting how many prefix reversals it takes to
+// bring 1 to the front, the fannkuch-redux benchmark of the Computer Language Benchmarks Game.
+module LangArena.Benchmarks.Fannkuchredux;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "CLBG::Fannkuchredux";
+
+// The length of the working arrays, which the other implementations fix rather than size to `n`.
+_capacity : I64 = 32;
+
+// Reverses the first `k + 1` entries of a permutation.
+//
+// # Parameters
+// * `k` - Index of the last entry to reverse.
+// * `perm` - The permutation to reverse a prefix of.
+_reverse_prefix : I64 -> Array I32 -> Array I32;
+_reverse_prefix = |k, perm| (
+    range(0, (k + 1) / 2).fold(perm, |i, perm|
+        let j = k - i;
+        let (a, b) = (perm.@(i), perm.@(j));
+        perm.set(i, b).set(j, a)
+    )
+);
+
+// The number of prefix reversals that bring 1 to the front of a permutation.
+//
+// # Parameters
+// * `perm` - The permutation to reverse prefixes of.
+_count_flips : Array I32 -> I64;
+_count_flips = |perm| (
+    let (_, flips) = loop((perm, 0), |(perm, flips)|
+        let k = perm.@(0).i64;
+        if k == 0 { break $ (perm, flips) };
+        continue $ (perm._reverse_prefix(k), flips + 1)
+    );
+    flips
+);
+
+// Advances to the next permutation and returns it with the rotation depth the walk is at, or none
+// when every permutation has been seen.
+//
+// # Parameters
+// * `n` - How many numbers are permuted.
+// * `r` - Rotation depth the walk reached.
+// * `state` - The permutation the walk stands on, and the counters that drive the rotations.
+_next_permutation : I64 -> I64 -> (Array I32, Array I32) -> Option (I64, (Array I32, Array I32));
+_next_permutation = |n, r, (perm1, count)| (
+    loop((r, perm1, count), |(r, perm1, count)|
+        if r == n { break $ none() };
+        let first = perm1.@(0);
+        let perm1 = range(0, r).fold(perm1, |i, perm1|
+            let next = perm1.@(i + 1);
+            perm1.set(i, next).set(i + 1, perm1.@(i))
+        );
+        let perm1 = perm1.set(r, first);
+        let count = count.mod(r, |c| c - 1_I32);
+        if count.@(r) > 0_I32 { break $ some((r, (perm1, count))) };
+        continue $ (r + 1, perm1, count)
+    )
+);
+
+// The checksum of the whole walk and the largest number of reversals any permutation needed.
+//
+// # Parameters
+// * `n` - How many numbers are permuted.
+_fannkuchredux : I64 -> (I32, I32);
+_fannkuchredux = |n| (
+    let identity = from_map(_capacity, |i| i.i32);
+    let (checksum, max_flips, _, _, _) =
+        loop((0_I32, 0_I32, 0, n, (identity, fill(_capacity, 0_I32))), |(checksum, max_flips, permutations, r, (perm1, count))|
+            // Every rotation below the depth the walk fell to starts over at its full count.
+            let count = range(1, r).fold(count, |depth, count| count.set(depth, (depth + 1).i32));
+            let perm = from_map(n, |i| perm1.@(i));
+            let flips = _count_flips(perm).i32;
+            let max_flips = max(max_flips, flips);
+            let checksum = if permutations % 2 == 0 { checksum + flips } else { checksum - flips };
+            match _next_permutation(n, 1, (perm1, count)) {
+                none() => break $ (checksum, max_flips, permutations, r, (perm1, count)),
+                some((r, state)) => continue $ (checksum, max_flips, permutations + 1, r, state)
+            }
+        );
+    (checksum, max_flips)
+);
+
+// The benchmark holding how many numbers are permuted and the sum of the walks so far.
+//
+// # Parameters
+// * `n` - How many numbers are permuted.
+// * `total` - The sum of the walks so far.
+_make_bench : I64 -> U32 -> Bench;
+_make_bench = |n, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_|
+            let (checksum, max_flips) = _fannkuchredux(n);
+            checksum.u32 * 100_U32 + max_flips.u32
+        ).sum;
+        _make_bench(n, total)
+    ),
+    |_| total
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, _| _make_bench(config.config_i64(_name, "n"), 0_U32));

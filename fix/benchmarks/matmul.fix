@@ -1,0 +1,101 @@
+// Multiplies two square matrices the naive way, over the three loops written out rather than
+// through a library, so that what is measured is the language rather than a BLAS binding.
+//
+// The four benchmarks differ only in how many threads the other implementations spread the rows
+// over. Fix computes all of them on one thread: the result, which is what the checksum covers, is
+// the same, and importing the module that would spread them puts atomic reference counting on every
+// benchmark in this program.
+module LangArena.Benchmarks.Matmul;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_single_name : String = "Matmul::Single";
+_t4_name : String = "Matmul::T4";
+_t8_name : String = "Matmul::T8";
+_t16_name : String = "Matmul::T16";
+
+// Builds the matrix the benchmarks multiply, whose entry at `(i, j)` is `(i - j)(i + j) / n^2`.
+//
+// # Parameters
+// * `n` - Side of the matrix.
+_matgen : I64 -> Array (Array F64);
+_matgen = |n| (
+    let scale = 1.0 / (n * n).f64;
+    from_map(n, |i| from_map(n, |j| scale * (i.f64 - j.f64) * (i.f64 + j.f64)))
+);
+
+// The transpose of a square matrix.
+//
+// # Parameters
+// * `matrix` - The matrix to transpose.
+_transpose : Array (Array F64) -> Array (Array F64);
+_transpose = |matrix| (
+    let n = matrix.@size;
+    from_map(n, |i| from_map(n, |j| matrix.@(j).@(i)))
+);
+
+// The product of two square matrices. The right one is transposed first, so that both operands of
+// the innermost loop are walked along their rows.
+//
+// # Parameters
+// * `a` - The left matrix.
+// * `b` - The right matrix.
+_matmul : Array (Array F64) -> Array (Array F64) -> Array (Array F64);
+_matmul = |a, b| (
+    let n = a.@size;
+    let bt = b._transpose;
+    from_map(n, |i|
+        let a_row = a.@(i);
+        from_map(n, |j|
+            let b_col = bt.@(j);
+            range(0, n).fold(0.0, |k, sum| sum + a_row.@(k) * b_col.@(k))
+        )
+    )
+);
+
+// The benchmark holding the two matrices and the sum of the products so far.
+//
+// # Parameters
+// * `a` - The left matrix.
+// * `b` - The right matrix.
+// * `total` - The sum of the products so far.
+_make_bench : Array (Array F64) -> Array (Array F64) -> U32 -> Bench;
+_make_bench = |a, b, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_|
+            let c = _matmul(a, b);
+            let middle = c.@size / 2;
+            Helper::checksum_float(c.@(middle).@(middle))
+        ).sum;
+        _make_bench(a, b, total)
+    ),
+    |_| total
+);
+
+// Builds one of the four benchmarks, which differ only in their name.
+//
+// # Parameters
+// * `name` - Name of the benchmark.
+_entry : String -> (String, MakeBench);
+_entry = |name| (name, |config, _|
+    let n = config.config_i64(name, "n");
+    _make_bench(_matgen(n), _matgen(n), 0_U32)
+);
+
+// The single-threaded benchmark, as the runner's registry holds it.
+single_entry : (String, MakeBench);
+single_entry = _entry(_single_name);
+
+// The four-thread benchmark, as the runner's registry holds it.
+t4_entry : (String, MakeBench);
+t4_entry = _entry(_t4_name);
+
+// The eight-thread benchmark, as the runner's registry holds it.
+t8_entry : (String, MakeBench);
+t8_entry = _entry(_t8_name);
+
+// The sixteen-thread benchmark, as the runner's registry holds it.
+t16_entry : (String, MakeBench);
+t16_entry = _entry(_t16_name);
