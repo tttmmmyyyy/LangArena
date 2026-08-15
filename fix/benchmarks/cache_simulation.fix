@@ -1,0 +1,162 @@
+// Asks a cache that keeps only the entries used most recently for a thousand drawn keys per
+// iteration, and counts how often the key was still there.
+module LangArena.Benchmarks.CacheSimulation;
+
+import Std;
+import Hash;
+import HashMap;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Etc::CacheSimulation";
+
+// How many keys one iteration asks for.
+_asks_per_iteration : I64 = 1000;
+
+// The value the checksum starts from.
+_checksum_seed : U32 = 5432_U32;
+
+// A cache holding the entries used most recently, and no more of them than it has room for.
+//
+// The entries stand in slots. Each slot names the slot used just before it and just after it, so
+// that asking for an entry moves it to the head of that order and the entry to drop is always the
+// one standing at its tail. A slot named by no other is named by -1.
+type Cache = box struct {
+    room : I64,
+    keys : Array String,
+    values : Array String,
+    newer : Array I64,
+    older : Array I64,
+    newest : I64,
+    oldest : I64,
+    used : I64,
+    places : HashMap String I64
+};
+
+// An empty cache with room for the given number of entries.
+//
+// # Parameters
+// * `room` - How many entries the cache holds before it starts dropping them.
+_empty_cache : I64 -> Cache;
+_empty_cache = |room| Cache {
+    room : room,
+    keys : fill(room, ""),
+    values : fill(room, ""),
+    newer : fill(room, -1),
+    older : fill(room, -1),
+    newest : -1,
+    oldest : -1,
+    used : 0,
+    places : HashMap::empty(room * 2)
+};
+
+// Takes a slot out of the order the entries stand in.
+//
+// # Parameters
+// * `slot` - The slot to take out.
+// * `cache` - The cache to take it out of.
+_detach : I64 -> Cache -> Cache;
+_detach = |slot, cache| (
+    let (newer, older) = (cache.@newer.@(slot), cache.@older.@(slot));
+    let cache = if newer < 0 { cache.set_newest(older) } else { cache.mod_older(set(newer, older)) };
+    if older < 0 { cache.set_oldest(newer) } else { cache.mod_newer(set(older, newer)) }
+);
+
+// Puts a slot at the head of the order, where the entry used most recently stands.
+//
+// # Parameters
+// * `slot` - The slot to put there.
+// * `cache` - The cache to put it in.
+_attach : I64 -> Cache -> Cache;
+_attach = |slot, cache| (
+    let newest = cache.@newest;
+    let cache = cache.mod_newer(set(slot, -1)).mod_older(set(slot, newest));
+    let cache = if newest < 0 { cache } else { cache.mod_newer(set(newest, slot)) };
+    let cache = cache.set_newest(slot);
+    if cache.@oldest < 0 { cache.set_oldest(slot) } else { cache }
+);
+
+// Whether the cache holds a key, moving it to the head of the order when it does.
+//
+// # Parameters
+// * `key` - The key to ask for.
+// * `cache` - The cache to ask.
+_ask : String -> Cache -> (Bool, Cache);
+_ask = |key, cache| (
+    match cache.@places.find(key) {
+        none() => (false, cache),
+        some(slot) => (true, cache._detach(slot)._attach(slot))
+    }
+);
+
+// Puts an entry into the cache, dropping the entry used least recently when there is no room.
+//
+// # Parameters
+// * `key` - The key of the entry.
+// * `value` - The value of the entry.
+// * `cache` - The cache to put it into.
+_put : String -> String -> Cache -> Cache;
+_put = |key, value, cache| (
+    match cache.@places.find(key) {
+        some(slot) => cache.mod_values(set(slot, value))._detach(slot)._attach(slot),
+        none() => (
+            let (slot, cache) = if cache.@used < cache.@room {
+                (cache.@used, cache.mod_used(add(1)))
+            } else {
+                let oldest = cache.@oldest;
+                let dropped = cache.@keys.@(oldest);
+                (oldest, cache._detach(oldest).mod_places(erase(dropped)))
+            };
+            cache.mod_keys(set(slot, key)).mod_values(set(slot, value))
+                 .mod_places(insert(key, slot))._attach(slot)
+        )
+    }
+);
+
+// The benchmark holding the cache, how many asks it answered and how many it could not, and the
+// generator the keys are drawn from.
+//
+// # Parameters
+// * `values` - One past the largest key number that can be drawn.
+// * `cache` - The cache to ask.
+// * `hits` - How many asks the cache answered so far.
+// * `misses` - How many asks it could not answer so far.
+// * `rng` - The generator the keys are drawn from.
+_make_bench : I64 -> Cache -> I64 -> I64 -> Rng -> Bench;
+_make_bench = |values, cache, hits, misses, rng| (
+    let advance = |iterations| (
+        let (cache, hits, misses, rng) = range(0, iterations).fold(
+            (cache, hits, misses, rng), |id, (cache, hits, misses, rng)|
+            range(0, _asks_per_iteration).fold(
+                (cache, hits, misses, rng), |_, (cache, hits, misses, rng)|
+                let (index, rng) = rng.next_int(values);
+                let key = "item_" + index.to_string;
+                let (held, cache) = cache._ask(key);
+                if held {
+                    (cache._put(key, "updated_" + id.to_string), hits + 1, misses, rng)
+                } else {
+                    (cache._put(key, "new_" + id.to_string), hits, misses + 1, rng)
+                }
+            )
+        );
+        _make_bench(values, cache, hits, misses, rng)
+    );
+    Bench {
+        run_iters : advance,
+        warmup : advance,
+        // The generator restarts before the measured run, while the cache and the counts carry on
+        // from where the warm-up left them.
+        reseed : some(|rng| _make_bench(values, cache, hits, misses, rng)),
+        checksum : |_| (
+            let result = _checksum_seed.shift_left(5_U32) + hits.u32;
+            let result = result.shift_left(5_U32) + misses.u32;
+            result.shift_left(5_U32) + cache.@used.u32
+        )
+    }
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, rng| _make_bench(
+    config.config_i64(_name, "values"), _empty_cache(config.config_i64(_name, "size")), 0, 0, rng
+));

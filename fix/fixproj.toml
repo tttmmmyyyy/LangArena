@@ -12,6 +12,7 @@ files = [
     "benchmarks/binarytrees.fix",
     "benchmarks/brainfuck.fix",
     "benchmarks/buffer_hash.fix",
+    "benchmarks/cache_simulation.fix",
     "benchmarks/calculator.fix",
     "benchmarks/compress.fix",
     "benchmarks/compress_arith.fix",
@@ -31,6 +32,7 @@ files = [
     "benchmarks/sieve.fix",
     "benchmarks/sort.fix",
     "benchmarks/spectralnorm.fix",
+    "benchmarks/template.fix",
     "benchmarks/text_raytracer.fix",
     "benchmarks/words.fix",
 ]
@@ -60,3 +62,8 @@ git = { url = "https://github.com/tttmmmyyyy/fixlang-math.git" }
 name = "hashmap"
 version = "2.0.1"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-hashmap.git" }
+
+[[dependencies]]
+name = "regexp"
+version = "1.1.3"
+git = { url = "https://github.com/tttmmmyyyy/fixlang-regexp.git" }

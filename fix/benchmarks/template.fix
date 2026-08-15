@@ -1,0 +1,131 @@
+// Fills the placeholders of a generated HTML page with the values a table gives for them.
+module LangArena.Benchmarks.Template;
+
+import Std;
+import Hash;
+import HashMap;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_parse_name : String = "Template::Parse";
+
+// The names, surnames and cities the rows of the page are filled with.
+_first_names : Array String;
+_first_names = ["John", "Jane", "Bob", "Alice", "Charlie", "Diana", "Sarah", "Mike"];
+
+_last_names : Array String;
+_last_names = ["Smith", "Johnson", "Brown", "Taylor", "Wilson", "Davis", "Miller", "Jones"];
+
+_cities : Array String;
+_cities = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "San Francisco"];
+
+// The paragraph that stands between the heading and the table. Its braces are single ones, which
+// the filling passes over.
+_lorem : String = "Lorem {ipsum} dolor {sit} amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore {et} dolore magna aliqua. ";
+
+// The page to fill and the value each placeholder stands for.
+type Template = struct { text : Array U8, values : HashMap (Array U8) (Array U8) };
+
+// Writes the page: a heading, a paragraph, and a row per entry holding three placeholders written
+// with different spacing around the name, and one field in single braces that is left alone.
+//
+// # Parameters
+// * `rows` - How many rows to write.
+_build : I64 -> Template;
+_build = |rows| (
+    let text = Array::empty(rows * 128)
+        .append_str("<html><body>")
+        .append_str("<h1>{{TITLE}}</h1>")
+        .append_str("<p>").append_str(_lorem).append_str("</p>")
+        .append_str("<table>");
+    let values = HashMap::empty(rows * 4).insert("TITLE".bytes_of, "Template title".bytes_of);
+    let (text, values) = range(0, rows).fold((text, values), |i, (text, values)|
+        let text = if i % 3 == 0 { text.append_str("<!-- {comment} -->") } else { text };
+        let number = i.to_string;
+        let text = text.append_str("<tr>")
+            .append_str("<td>{{ FIRST_NAME" + number + " }}</td>")
+            .append_str("<td>{{LAST_NAME" + number + "}}</td>")
+            .append_str("<td>{{  CITY" + number + "  }}</td>")
+            .append_str("<td>{balance: " + (i % 100).to_string + "}</td>")
+            .append_str("</tr>\n");
+        let values = values
+            .insert(("FIRST_NAME" + number).bytes_of, _first_names.@(i % _first_names.@size).bytes_of)
+            .insert(("LAST_NAME" + number).bytes_of, _last_names.@(i % _last_names.@size).bytes_of)
+            .insert(("CITY" + number).bytes_of, _cities.@(i % _cities.@size).bytes_of);
+        (text, values)
+    );
+    let text = text.append_str("</table>").append_str("</body></html>");
+    Template { text : text, values : values }
+);
+
+// Whether a byte is one the spacing around a placeholder name is written with.
+//
+// # Parameters
+// * `byte` - The byte to test.
+_is_space : U8 -> Bool;
+_is_space = |byte| byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r';
+
+// A stretch of the page with the spacing at either end left off.
+//
+// # Parameters
+// * `from` - Where the stretch starts.
+// * `to` - One past where it ends.
+// * `text` - The page to read.
+_trimmed : I64 -> I64 -> Array U8 -> Array U8;
+_trimmed = |from, to, text| (
+    let start = loop(from, |i| if i < to && _is_space(text.@(i)) { continue $ i + 1 } else { break $ i });
+    let end = loop(to, |i| if i > start && _is_space(text.@(i - 1)) { continue $ i - 1 } else { break $ i });
+    text.get_sub(start, end)
+);
+
+// Fills the page: every stretch wrapped in double braces is replaced by the value its name stands
+// for, a name the table does not hold leaves nothing behind, and everything else is copied over.
+//
+// # Parameters
+// * `template` - The page to fill and the values to fill it with.
+_render : Template -> Array U8;
+_render = |template| (
+    let (text, values) = (template.@text, template.@values);
+    let n = text.@size;
+    let (rendered, _) = loop((Array::empty(n * 3 / 2), 0), |(rendered, i)|
+        if i >= n { break $ (rendered, i) };
+        if i + 1 >= n || text.@(i) != '{' || text.@(i + 1) != '{' {
+            continue $ (rendered.push_back(text.@(i)), i + 1)
+        };
+        let close = loop(i + 2, |j|
+            if j + 1 >= n { break $ j };
+            if text.@(j) == '}' && text.@(j + 1) == '}' { break $ j };
+            continue $ j + 1
+        );
+        if close + 1 >= n { continue $ (rendered.push_back(text.@(i)), i + 1) };
+        match values.find(text._trimmed(i + 2, close)) {
+            none() => continue $ (rendered, close + 2),
+            some(value) => continue $ (rendered.append(value), close + 2)
+        }
+    );
+    rendered
+);
+
+// The benchmark holding the page, what the last filling produced, and the sum of the lengths so far.
+//
+// # Parameters
+// * `template` - The page to fill and the values to fill it with.
+// * `rendered` - What the last filling produced.
+// * `total` - The sum of the lengths so far.
+_make_bench : Template -> Array U8 -> U32 -> Bench;
+_make_bench = |template, rendered, total| Bench::make(
+    |iterations| (
+        let (rendered, total) = range(0, iterations).fold((rendered, total), |_, (_, total)|
+            let rendered = _render(template);
+            (rendered, total + rendered.@size.u32)
+        );
+        _make_bench(template, rendered, total)
+    ),
+    |_| total + checksum_bytes(rendered)
+);
+
+// The benchmark, as the runner's registry holds it.
+parse_entry : (String, MakeBench);
+parse_entry = (_parse_name, |config, _|
+    _make_bench(_build(config.config_i64(_parse_name, "count")), Array::empty(0), 0_U32)
+);

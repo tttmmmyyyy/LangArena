@@ -7,6 +7,7 @@ import LangArena.Benchmarks.Base64;
 import LangArena.Benchmarks.Binarytrees;
 import LangArena.Benchmarks.Brainfuck;
 import LangArena.Benchmarks.BufferHash;
+import LangArena.Benchmarks.CacheSimulation;
 import LangArena.Benchmarks.Calculator;
 import LangArena.Benchmarks.CompressArith;
 import LangArena.Benchmarks.CompressBwt;
@@ -25,6 +26,7 @@ import LangArena.Benchmarks.NeuralNet;
 import LangArena.Benchmarks.Sieve;
 import LangArena.Benchmarks.Sort;
 import LangArena.Benchmarks.Spectralnorm;
+import LangArena.Benchmarks.Template;
 import LangArena.Benchmarks.TextRaytracer;
 import LangArena.Benchmarks.Words;
 
@@ -40,6 +42,7 @@ _registry = [
     Brainfuck::recursion_entry,
     BufferHash::crc32_entry,
     BufferHash::sha256_entry,
+    CacheSimulation::entry,
     Calculator::ast_entry,
     Calculator::interpreter_entry,
     CompressArith::decode_entry,
@@ -73,6 +76,7 @@ _registry = [
     Sort::quick_entry,
     Sort::self_entry,
     Spectralnorm::entry,
+    Template::parse_entry,
     TextRaytracer::entry,
     Words::entry
 ];
