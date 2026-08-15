@@ -1,0 +1,242 @@
+// Walks a large sparse graph from one end to the other, breadth first, depth first, and with A*.
+module LangArena.Benchmarks.GraphPath;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_bfs_name : String = "Graph::BFS";
+_dfs_name : String = "Graph::DFS";
+_astar_name : String = "Graph::AStar";
+
+// The value standing for a distance no walk has reached yet. It is the largest signed 32-bit
+// integer because that is the width the other implementations hold a distance in.
+_unreached : I64 = 2147483647;
+
+// The graph: for every vertex, the vertices an edge joins it to, in the order the edges were laid
+// down.
+type Graph = struct { vertices : I64, adj : Array (Array I64) };
+
+// Joins two vertices, in both directions.
+//
+// # Parameters
+// * `u` - One end of the edge.
+// * `v` - The other end of the edge.
+// * `adj` - The edges laid down so far.
+_add_edge : I64 -> I64 -> Array (Array I64) -> Array (Array I64);
+_add_edge = |u, v, adj| adj.mod(u, push_back(v)).mod(v, push_back(u));
+
+// Builds the graph: a chain joining every vertex to the one before it, and for every vertex a drawn
+// number of jumps, each reaching a vertex up to half the jump length away in either direction.
+//
+// # Parameters
+// * `vertices` - How many vertices the graph has.
+// * `jumps` - One past the largest number of jumps one vertex can be given.
+// * `jump_len` - Twice the largest distance a jump reaches.
+// * `rng` - The generator the jumps are drawn from.
+_build : I64 -> I64 -> I64 -> Rng -> Graph;
+_build = |vertices, jumps, jump_len, rng| (
+    let adj = from_map(vertices, |_| Array::empty(0));
+    let adj = range(1, vertices).fold(adj, |i, adj| adj._add_edge(i, i - 1));
+    let (adj, _) = range(0, vertices).fold((adj, rng), |v, (adj, rng)|
+        let (count, rng) = rng.next_int(jumps);
+        range(0, count).fold((adj, rng), |_, (adj, rng)|
+            let (offset, rng) = rng.next_int(jump_len);
+            let u = v + offset - jump_len / 2;
+            if u < 0 || u >= vertices || u == v { (adj, rng) };
+            (adj._add_edge(v, u), rng)
+        )
+    );
+    Graph { vertices : vertices, adj : adj }
+);
+
+// Builds the graph the parameters of a benchmark describe.
+//
+// # Parameters
+// * `name` - Name of the benchmark whose parameters to read.
+// * `config` - The configuration to read.
+// * `rng` - The generator the jumps are drawn from.
+_from_config : String -> Config -> Rng -> Graph;
+_from_config = |name, config, rng| _build(
+    config.config_i64(name, "vertices"),
+    config.config_i64(name, "jumps"),
+    config.config_i64(name, "jump_len"),
+    rng
+);
+
+// How many edges a shortest path between two vertices has, or -1 when none joins them.
+//
+// # Parameters
+// * `start` - The vertex to walk from.
+// * `target` - The vertex to reach.
+// * `graph` - The graph to walk.
+_bfs : I64 -> I64 -> Graph -> I64;
+_bfs = |start, target, graph| (
+    if start == target { 0 };
+    let adj = graph.@adj;
+    let visited = fill(graph.@vertices, false).set(start, true);
+    // A vertex enters the queue at most once, so the entries the walk has left behind are never
+    // written again and the queue is an array read from the front.
+    loop((visited, [(start, 0)], 0), |(visited, queue, head)|
+        if head == queue.@size { break $ -1 };
+        let (vertex, dist) = queue.@(head);
+        let neighbours = adj.@(vertex);
+        let (visited, queue, found) = loop((visited, queue, 0), |(visited, queue, k)|
+            if k == neighbours.@size { break $ (visited, queue, none()) };
+            let neighbour = neighbours.@(k);
+            if neighbour == target { break $ (visited, queue, some(dist + 1)) };
+            if visited.@(neighbour) { continue $ (visited, queue, k + 1) };
+            continue $ (visited.set(neighbour, true), queue.push_back((neighbour, dist + 1)), k + 1)
+        );
+        if found.is_some { break $ found.as_some };
+        continue $ (visited, queue, head + 1)
+    )
+);
+
+// How many edges the shortest path a depth-first walk meets has, or -1 when none joins the two
+// vertices. The walk turns back wherever it has already spent as many edges as its best path has,
+// so the answer is the shortest path among those it reaches, and a vertex it turned back at stays
+// open to a later, shorter approach.
+//
+// # Parameters
+// * `start` - The vertex to walk from.
+// * `target` - The vertex to reach.
+// * `graph` - The graph to walk.
+_dfs : I64 -> I64 -> Graph -> I64;
+_dfs = |start, target, graph| (
+    if start == target { 0 };
+    let adj = graph.@adj;
+    let visited = fill(graph.@vertices, false);
+    let best = loop((visited, [(start, 0)], _unreached), |(visited, stack, best)|
+        if stack.@size == 0 { break $ best };
+        let (vertex, dist) = stack.@(stack.@size - 1);
+        let stack = stack.pop_back;
+        if visited.@(vertex) || dist >= best { continue $ (visited, stack, best) };
+        let visited = visited.set(vertex, true);
+        let neighbours = adj.@(vertex);
+        let (stack, best) = loop((stack, best, 0), |(stack, best, k)|
+            if k == neighbours.@size { break $ (stack, best) };
+            let neighbour = neighbours.@(k);
+            if neighbour == target { continue $ (stack, min(best, dist + 1), k + 1) };
+            if visited.@(neighbour) { continue $ (stack, best, k + 1) };
+            continue $ (stack.push_back((neighbour, dist + 1)), best, k + 1)
+        );
+        continue $ (visited, stack, best)
+    );
+    if best == _unreached { -1 } else { best }
+);
+
+// Puts an item into a heap ordered by the first element of its pairs, held as the array of the
+// binary tree read breadth first.
+//
+// # Parameters
+// * `item` - The item to put in.
+// * `heap` - The heap to put it into.
+_heap_push : (I64, I64) -> Array (I64, I64) -> Array (I64, I64);
+_heap_push = |item, heap| (
+    let heap = heap.push_back(item);
+    let last = heap.@size - 1;
+    let (heap, hole) = loop((heap, last), |(heap, hole)|
+        if hole == 0 { break $ (heap, hole) };
+        let parent = (hole - 1) / 2;
+        let above = heap.@(parent);
+        if above.@0 <= item.@0 { break $ (heap, hole) };
+        continue $ (heap.set(hole, above), parent)
+    );
+    heap.set(hole, item)
+);
+
+// Takes the least item out of the heap, with the heap it leaves behind.
+//
+// # Parameters
+// * `heap` - The heap to take from.
+_heap_pop : Array (I64, I64) -> ((I64, I64), Array (I64, I64));
+_heap_pop = |heap| (
+    let least = heap.@(0);
+    let size = heap.@size - 1;
+    let last = heap.@(size);
+    let heap = heap.pop_back;
+    if size == 0 { (least, heap) };
+    let (heap, hole) = loop((heap, 0), |(heap, hole)|
+        let left = 2 * hole + 1;
+        if left >= size { break $ (heap, hole) };
+        let right = left + 1;
+        let child = if right < size && heap.@(right).@0 < heap.@(left).@0 { right } else { left };
+        let below = heap.@(child);
+        if last.@0 <= below.@0 { break $ (heap, hole) };
+        continue $ (heap.set(hole, below), child)
+    );
+    (least, heap.set(hole, last))
+);
+
+// How many edges the path A* finds between two vertices has, or -1 when none joins them.
+//
+// The distance left is estimated as the difference of the two vertex numbers, which a jump covers
+// in one edge rather than the many the estimate names, so the path found is not always a shortest
+// one.
+//
+// # Parameters
+// * `start` - The vertex to walk from.
+// * `target` - The vertex to reach.
+// * `graph` - The graph to walk.
+_astar : I64 -> I64 -> Graph -> I64;
+_astar = |start, target, graph| (
+    if start == target { 0 };
+    let adj = graph.@adj;
+    let vertices = graph.@vertices;
+    let g_score = fill(vertices, _unreached).set(start, 0);
+    let closed = fill(vertices, false);
+    let open_of = fill(vertices, false).set(start, true);
+    loop((g_score, closed, open_of, [(target - start, start)]), |(g_score, closed, open_of, open)|
+        if open.@size == 0 { break $ -1 };
+        let ((_, vertex), open) = open._heap_pop;
+        let open_of = open_of.set(vertex, false);
+        if vertex == target { break $ g_score.@(vertex) };
+        let closed = closed.set(vertex, true);
+        // No neighbour the walk goes on to reach is the vertex itself, so the distance it reached
+        // this vertex at stands for the whole of the round.
+        let tentative = g_score.@(vertex) + 1;
+        let neighbours = adj.@(vertex);
+        let (g_score, open_of, open) = loop((g_score, open_of, open, 0), |(g_score, open_of, open, k)|
+            if k == neighbours.@size { break $ (g_score, open_of, open) };
+            let neighbour = neighbours.@(k);
+            if closed.@(neighbour) { continue $ (g_score, open_of, open, k + 1) };
+            if tentative >= g_score.@(neighbour) { continue $ (g_score, open_of, open, k + 1) };
+            let g_score = g_score.set(neighbour, tentative);
+            if open_of.@(neighbour) { continue $ (g_score, open_of, open, k + 1) };
+            let open = open._heap_push((tentative + target - neighbour, neighbour));
+            continue $ (g_score, open_of.set(neighbour, true), open, k + 1)
+        );
+        continue $ (g_score, closed, open_of, open)
+    )
+);
+
+// The benchmark holding the graph and the sum of the path lengths found so far.
+//
+// # Parameters
+// * `walk` - The walk to run, from one vertex to another of a graph.
+// * `graph` - The graph to walk.
+// * `total` - The sum of the path lengths found so far.
+_make_bench : (I64 -> I64 -> Graph -> I64) -> Graph -> U32 -> Bench;
+_make_bench = |walk, graph, total| (
+    let last = graph.@vertices - 1;
+    Bench::make(
+        |iterations| (
+            let total = total + range(0, iterations).map(|_| walk(0, last, graph).u32).sum;
+            _make_bench(walk, graph, total)
+        ),
+        |_| total
+    )
+);
+
+// The benchmarks, as the runner's registry holds them.
+bfs_entry : (String, MakeBench);
+bfs_entry = (_bfs_name, |config, rng| _make_bench(_bfs, _from_config(_bfs_name, config, rng), 0_U32));
+
+dfs_entry : (String, MakeBench);
+dfs_entry = (_dfs_name, |config, rng| _make_bench(_dfs, _from_config(_dfs_name, config, rng), 0_U32));
+
+astar_entry : (String, MakeBench);
+astar_entry = (
+    _astar_name, |config, rng| _make_bench(_astar, _from_config(_astar_name, config, rng), 0_U32)
+);

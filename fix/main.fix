@@ -10,6 +10,7 @@ import LangArena.Benchmarks.CalculatorAst;
 import LangArena.Benchmarks.CompressBwt;
 import LangArena.Benchmarks.Fannkuchredux;
 import LangArena.Benchmarks.GameOfLife;
+import LangArena.Benchmarks.GraphPath;
 import LangArena.Benchmarks.Jaro;
 import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Matmul;
@@ -37,6 +38,9 @@ _registry = [
     CompressBwt::encode_entry,
     Fannkuchredux::entry,
     GameOfLife::entry,
+    GraphPath::astar_entry,
+    GraphPath::bfs_entry,
+    GraphPath::dfs_entry,
     Jaro::entry,
     Mandelbrot::entry,
     Matmul::single_entry,

@@ -14,6 +14,7 @@ files = [
     "benchmarks/compress_bwt.fix",
     "benchmarks/fannkuchredux.fix",
     "benchmarks/game_of_life.fix",
+    "benchmarks/graph_path.fix",
     "benchmarks/jaro.fix",
     "benchmarks/mandelbrot.fix",
     "benchmarks/matmul.fix",
