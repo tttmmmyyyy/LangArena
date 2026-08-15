@@ -19,6 +19,7 @@ files = [
     "benchmarks/nbody.fix",
     "benchmarks/sieve.fix",
     "benchmarks/sort.fix",
+    "benchmarks/text_raytracer.fix",
     "benchmarks/spectralnorm.fix",
 ]
 

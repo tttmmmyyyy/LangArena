@@ -1,0 +1,176 @@
+// Traces one ray per pixel through three spheres and turns the brightness it finds into one of six
+// characters, summing the characters over the image.
+module LangArena.Benchmarks.TextRaytracer;
+
+import Std;
+import Math;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Etc::TextRaytracer";
+
+type Vector = struct { x : F64, y : F64, z : F64 };
+type Color = struct { r : F64, g : F64, b : F64 };
+type Sphere = struct { center : Vector, radius : F64, color : Color };
+
+// Multiplies a vector by a number.
+//
+// # Parameters
+// * `s` - The number to multiply by.
+// * `v` - The vector to multiply.
+_scale : F64 -> Vector -> Vector;
+_scale = |s, v| Vector { x : v.@x * s, y : v.@y * s, z : v.@z * s };
+
+// Adds two vectors.
+//
+// # Parameters
+// * `rhs` - The vector to add.
+// * `lhs` - The vector to add to.
+_add : Vector -> Vector -> Vector;
+_add = |rhs, lhs| Vector { x : lhs.@x + rhs.@x, y : lhs.@y + rhs.@y, z : lhs.@z + rhs.@z };
+
+// Subtracts the first vector from the second.
+//
+// # Parameters
+// * `rhs` - The vector to subtract.
+// * `lhs` - The vector to subtract from.
+_sub : Vector -> Vector -> Vector;
+_sub = |rhs, lhs| Vector { x : lhs.@x - rhs.@x, y : lhs.@y - rhs.@y, z : lhs.@z - rhs.@z };
+
+// The dot product of two vectors.
+//
+// # Parameters
+// * `rhs` - The vector to multiply by.
+// * `lhs` - The vector to multiply.
+_dot : Vector -> Vector -> F64;
+_dot = |rhs, lhs| lhs.@x * rhs.@x + lhs.@y * rhs.@y + lhs.@z * rhs.@z;
+
+// The vector of length one pointing the same way.
+//
+// # Parameters
+// * `v` - The vector to scale to length one.
+_normalize : Vector -> Vector;
+_normalize = |v| v._scale(1.0 / v._dot(v).sqrt);
+
+// Multiplies a colour by a number.
+//
+// # Parameters
+// * `s` - The number to multiply by.
+// * `c` - The colour to multiply.
+_scale_color : F64 -> Color -> Color;
+_scale_color = |s, c| Color { r : c.@r * s, g : c.@g * s, b : c.@b * s };
+
+_white : Color = Color { r : 1.0, g : 1.0, b : 1.0 };
+
+// Where the light stands and what colour it casts.
+_light_position : Vector = Vector { x : 0.7, y : -1.0, z : 1.7 };
+
+// The characters the brightness of a pixel is written as, from dimmest to brightest.
+_shades : Array U8;
+_shades = ".-+*XM".bytes_of;
+
+// The three spheres the rays are traced through.
+_scene : Array Sphere;
+_scene = [
+    Sphere { center : Vector { x : -1.0, y : 0.0, z : 3.0 }, radius : 0.3, color : Color { r : 1.0, g : 0.0, b : 0.0 } },
+    Sphere { center : Vector { x :  0.0, y : 0.0, z : 3.0 }, radius : 0.8, color : Color { r : 0.0, g : 1.0, b : 0.0 } },
+    Sphere { center : Vector { x :  1.0, y : 0.0, z : 3.0 }, radius : 0.4, color : Color { r : 0.0, g : 0.0, b : 1.0 } }
+];
+
+// How far along a ray it meets a sphere, or none when it misses.
+//
+// # Parameters
+// * `origin` - Where the ray starts.
+// * `direction` - Which way the ray points.
+// * `sphere` - The sphere to meet.
+_intersect : Vector -> Vector -> Sphere -> Option F64;
+_intersect = |origin, direction, sphere| (
+    let to_center = sphere.@center._sub(origin);
+    let along = to_center._dot(direction);
+    if along < 0.0 { none() };
+    let off_axis = to_center._dot(to_center) - along * along;
+    let radius2 = sphere.@radius * sphere.@radius;
+    if off_axis > radius2 { none() };
+    let near = along - (radius2 - off_axis).sqrt;
+    if near > 10000.0 { none() };
+    some(near)
+);
+
+// The colour a sphere shows at a point, lit from one side and dimly lit all over.
+//
+// # Parameters
+// * `point` - Where the ray met the sphere.
+// * `sphere` - The sphere the ray met.
+_diffuse_shading : Vector -> Sphere -> Color;
+_diffuse_shading = |point, sphere| (
+    let normal = point._sub(sphere.@center)._normalize;
+    let to_light = _light_position._sub(point)._normalize;
+    let lambert = min(1.0, max(0.0, to_light._dot(normal)));
+    let lit = _white._scale_color(lambert * 0.5);
+    let own = sphere.@color._scale_color(0.3);
+    Color { r : lit.@r + own.@r, g : lit.@g + own.@g, b : lit.@b + own.@b }
+);
+
+// The character a pixel is written as: a space where the ray met nothing.
+//
+// # Parameters
+// * `direction` - Which way the ray points.
+_trace : Vector -> U8;
+_trace = |direction| (
+    let origin = Vector { x : 0.0, y : 0.0, z : 0.0 };
+    let hit = loop(0, |i|
+        if i >= _scene.@size { break $ none() };
+        let sphere = _scene.@(i);
+        match _intersect(origin, direction, sphere) {
+            none() => continue $ i + 1,
+            some(near) => break $ some((sphere, near))
+        }
+    );
+    if hit.is_none { ' ' };
+    let (sphere, near) = hit.as_some;
+    let point = origin._add(direction._scale(near));
+    let color = _diffuse_shading(point, sphere);
+    let brightness = (color.@r + color.@g + color.@b) / 3.0;
+    let index = (brightness * 6.0).floor.i64;
+    if index < _shades.@size { _shades.@(index) } else { ' ' }
+);
+
+// Traces the whole image and returns the sum of its characters.
+//
+// # Parameters
+// * `w` - Width of the image in pixels.
+// * `h` - Height of the image in pixels.
+_render : I64 -> I64 -> U32;
+_render = |w, h| (
+    range(0, h).fold(0_U32, |j, total|
+        range(0, w).fold(total, |i, total|
+            let direction = Vector {
+                x : (i.f64 - w.f64 / 2.0) / w.f64,
+                y : (j.f64 - h.f64 / 2.0) / h.f64,
+                z : 1.0
+            }._normalize;
+            total + _trace(direction).u32
+        )
+    )
+);
+
+// The benchmark holding the image dimensions and the sum of the renderings so far.
+//
+// # Parameters
+// * `w` - Width of the image in pixels.
+// * `h` - Height of the image in pixels.
+// * `total` - The sum of the renderings so far.
+_make_bench : I64 -> I64 -> U32 -> Bench;
+_make_bench = |w, h, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| _render(w, h)).sum;
+        _make_bench(w, h, total)
+    ),
+    |_| total
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, _|
+    _make_bench(config.config_i64(_name, "w"), config.config_i64(_name, "h"), 0_U32)
+);

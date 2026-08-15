@@ -14,6 +14,7 @@ import LangArena.Benchmarks.Mandelbrot;
 import LangArena.Benchmarks.Matmul;
 import LangArena.Benchmarks.Nbody;
 import LangArena.Benchmarks.Sieve;
+import LangArena.Benchmarks.TextRaytracer;
 import LangArena.Benchmarks.Sort;
 import LangArena.Benchmarks.Spectralnorm;
 
@@ -42,6 +43,7 @@ _registry = [
     Sort::merge_entry,
     Sort::quick_entry,
     Sort::self_entry,
+    TextRaytracer::entry,
     Spectralnorm::entry
 ];
 
