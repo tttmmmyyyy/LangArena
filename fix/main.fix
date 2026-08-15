@@ -6,6 +6,7 @@ import LangArena.Helper;
 import LangArena.Benchmarks.Binarytrees;
 import LangArena.Benchmarks.Brainfuck;
 import LangArena.Benchmarks.BufferHash;
+import LangArena.Benchmarks.CalculatorAst;
 import LangArena.Benchmarks.CompressBwt;
 import LangArena.Benchmarks.Fannkuchredux;
 import LangArena.Benchmarks.GameOfLife;
@@ -28,6 +29,7 @@ _registry = [
     Brainfuck::recursion_entry,
     BufferHash::crc32_entry,
     BufferHash::sha256_entry,
+    CalculatorAst::entry,
     CompressBwt::decode_entry,
     CompressBwt::encode_entry,
     Fannkuchredux::entry,

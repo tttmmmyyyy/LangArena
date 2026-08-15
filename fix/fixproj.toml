@@ -10,6 +10,7 @@ files = [
     "benchmarks/binarytrees.fix",
     "benchmarks/brainfuck.fix",
     "benchmarks/buffer_hash.fix",
+    "benchmarks/calculator_ast.fix",
     "benchmarks/compress_bwt.fix",
     "benchmarks/fannkuchredux.fix",
     "benchmarks/game_of_life.fix",

@@ -1,0 +1,211 @@
+// Parses a generated program of assignments into syntax trees, once per iteration.
+module LangArena.Benchmarks.CalculatorAst;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Calculator::Ast";
+
+// A parsed expression. An operation and an assignment carry the trees they are built from, so the
+// type stands behind a pointer.
+type Node = box union {
+    number : I64,
+    variable : Array U8,
+    operation : (U8, Node, Node),
+    assignment : (Array U8, Node)
+};
+
+// Appends the bytes of a string to a buffer.
+//
+// # Parameters
+// * `text` - The string to append.
+// * `buffer` - The buffer to append to.
+_append : String -> Array U8 -> Array U8;
+_append = |text, buffer| text.bytes_of.to_iter.fold(buffer, |byte, buffer| buffer.push_back(byte));
+
+// The right-hand side of the `i`-th generated assignment, chosen from ten shapes.
+//
+// # Parameters
+// * `shape` - Which of the ten shapes to write.
+// * `i` - How many assignments were written before this one.
+// * `v` - The number of the variable being assigned.
+_right_hand_side : I64 -> I64 -> I64 -> String;
+_right_hand_side = |shape, i, v| (
+    let var = |offset| "v" + (v - offset).to_string;
+    if shape == 0 {
+        "(" + var(1) + " / 3) * 4 - " + i.to_string + " / (3 + (18 - " + var(2) + ")) % " + var(3)
+            + " + 2 * ((9 - " + var(6) + ") * (" + var(5) + " + 7))"
+    };
+    if shape == 1 {
+        var(1) + " + (" + var(2) + " + " + var(3) + ") * " + var(4) + " - (" + var(5) + " / " + var(6) + ")"
+    };
+    if shape == 2 { "(3789 - (((" + var(7) + ")))) + 1" };
+    if shape == 3 { "4/2 * (1-3) + " + var(9) + "/" + var(5) };
+    if shape == 4 { "1+2+3+4+5+6+" + var(1) };
+    if shape == 5 { "(99999 / " + var(3) + ")" };
+    if shape == 6 { "0 + 0 - " + var(8) };
+    if shape == 7 { "((((((((((" + var(6) + ")))))))))) * 2" };
+    if shape == 8 { i.to_string + " * (" + var(1) + "%6)%7" };
+    "(1)/(0-" + var(5) + ") + (" + var(7) + ")"
+);
+
+// Writes the program the benchmark parses: ten assignments that build a chain, then `n` more whose
+// right-hand sides are drawn from ten shapes.
+//
+// # Parameters
+// * `n` - How many drawn assignments to write.
+// * `rng` - The generator the shapes are drawn from.
+_generate_program : I64 -> Rng -> Array U8;
+_generate_program = |n, rng| (
+    let text = Array::empty(n * 64)._append("v0 = 1\n");
+    let text = range(0, 10).fold(text, |i, text|
+        let v = i + 1;
+        text._append("v" + v.to_string + " = v" + (v - 1).to_string + " + " + v.to_string + "\n")
+    );
+    let (text, _) = range(0, n).fold((text, rng), |i, (text, rng)|
+        let v = i + 10;
+        let text = text._append("v" + v.to_string + " = v" + (v - 1).to_string + " + ");
+        let (shape, rng) = rng.next_int(10);
+        (text._append(_right_hand_side(shape, i, v))._append("\n"), rng)
+    );
+    text
+);
+
+// Whether a byte is one the parser passes over between tokens. Line breaks are among them, so the
+// parser meets the assignments as one stream.
+//
+// # Parameters
+// * `byte` - The byte to test.
+_is_space : U8 -> Bool;
+_is_space = |byte| byte == ' ' || byte == '\n' || byte == '\t' || byte == '\r';
+
+// The first position at or after `from` that does not hold a space.
+//
+// # Parameters
+// * `text` - The program text.
+// * `from` - Position to start from.
+_skip_spaces : Array U8 -> I64 -> I64;
+_skip_spaces = |text, from| (
+    loop(from, |i| if i < text.@size && _is_space(text.@(i)) { continue $ i + 1 } else { break $ i })
+);
+
+// Reads a number, a variable, an assignment, or a parenthesized expression.
+//
+// # Parameters
+// * `text` - The program text.
+// * `from` - Position to start from.
+_parse_factor : Array U8 -> I64 -> (Node, I64);
+_parse_factor = |text, from| (
+    let i = _skip_spaces(text, from);
+    if i >= text.@size { (number(0), i) };
+    let byte = text.@(i);
+    if byte >= '0' && byte <= '9' {
+        let end = loop(i, |j|
+            if j < text.@size && text.@(j) >= '0' && text.@(j) <= '9' { continue $ j + 1 } else { break $ j }
+        );
+        let value = range(i, end).fold(0, |j, value| value * 10 + (text.@(j) - '0').i64);
+        (number(value), end)
+    };
+    if byte >= 'a' && byte <= 'z' {
+        let end = loop(i, |j|
+            if j >= text.@size { break $ j };
+            let b = text.@(j);
+            if (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') { continue $ j + 1 } else { break $ j }
+        );
+        let name = text.get_sub(i, end);
+        let after = _skip_spaces(text, end);
+        if after < text.@size && text.@(after) == '=' {
+            let (value, next) = _parse_expression(text, after + 1);
+            (assignment((name, value)), next)
+        };
+        (variable(name), end)
+    };
+    if byte == '(' {
+        let (inner, next) = _parse_expression(text, i + 1);
+        let next = _skip_spaces(text, next);
+        if next < text.@size && text.@(next) == ')' { (inner, next + 1) };
+        (inner, next)
+    };
+    (number(0), i)
+);
+
+// Reads a factor and every multiplication, division and remainder that follows it.
+//
+// # Parameters
+// * `text` - The program text.
+// * `from` - Position to start from.
+_parse_term : Array U8 -> I64 -> (Node, I64);
+_parse_term = |text, from| (
+    let (left, next) = _parse_factor(text, from);
+    loop((left, next), |(left, next)|
+        let i = _skip_spaces(text, next);
+        if i >= text.@size { break $ (left, i) };
+        let byte = text.@(i);
+        if byte != '*' && byte != '/' && byte != '%' { break $ (left, i) };
+        let (right, after) = _parse_factor(text, i + 1);
+        continue $ (operation((byte, left, right)), after)
+    )
+);
+
+// Reads a term and every addition and subtraction that follows it.
+//
+// # Parameters
+// * `text` - The program text.
+// * `from` - Position to start from.
+_parse_expression : Array U8 -> I64 -> (Node, I64);
+_parse_expression = |text, from| (
+    let (left, next) = _parse_term(text, from);
+    loop((left, next), |(left, next)|
+        let i = _skip_spaces(text, next);
+        if i >= text.@size { break $ (left, i) };
+        let byte = text.@(i);
+        if byte != '+' && byte != '-' { break $ (left, i) };
+        let (right, after) = _parse_term(text, i + 1);
+        continue $ (operation((byte, left, right)), after)
+    )
+);
+
+// Parses the whole program into one tree per assignment.
+//
+// # Parameters
+// * `text` - The program text.
+_parse : Array U8 -> Array Node;
+_parse = |text| (
+    let (expressions, _) = loop((Array::empty(64), 0), |(expressions, from)|
+        let i = _skip_spaces(text, from);
+        if i >= text.@size { break $ (expressions, i) };
+        let (node, next) = _parse_expression(text, i);
+        continue $ (expressions.push_back(node), next)
+    );
+    expressions
+);
+
+// The benchmark holding the program text and the sum of the parses so far.
+//
+// # Parameters
+// * `text` - The program text.
+// * `total` - The sum of the parses so far.
+_make_bench : Array U8 -> U32 -> Bench;
+_make_bench = |text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_|
+            let expressions = _parse(text);
+            let count = expressions.@size.u32;
+            let last = expressions.@(expressions.@size - 1);
+            if last.is_assignment {
+                count + Helper::checksum_bytes(last.as_assignment.@0)
+            } else {
+                count
+            }
+        ).sum;
+        _make_bench(text, total)
+    ),
+    |_| total
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, rng|
+    _make_bench(_generate_program(config.config_i64(_name, "operations"), rng), 0_U32)
+);
