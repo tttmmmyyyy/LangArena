@@ -2,10 +2,14 @@
 // produced.
 module LangArena.Benchmarks.CompressBwt;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Benchmarks.Compress;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Benchmarks.Compress::{byte_frequencies, generate_text};
+import LangArena.Helper::config_i64;
+import Std::{
+    loop, Array, I64, String, U32, U8, Add::add, 
+    Array::{empty, fill, mod, set, sort_stable_by, @, @size}, Iterator::{fold, map, range, sum}, 
+    LoopState::{break, continue}, ToI64::i64, ToU32::u32, Tuple2::@0
+};
 
 _encode_name : String = "Compress::BWTEncode";
 _decode_name : String = "Compress::BWTDecode";

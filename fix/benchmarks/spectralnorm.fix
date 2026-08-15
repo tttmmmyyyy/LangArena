@@ -2,10 +2,10 @@
 // by the power method, the spectral-norm benchmark of the Computer Language Benchmarks Game.
 module LangArena.Benchmarks.Spectralnorm;
 
-import Std;
-import Math;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{checksum_float, config_i64};
+import Math::sqrt;
+import Std::{Array, F64, I64, String, Array::{fill, from_map, @, @size}, Iterator::{fold, range}, ToF64::f64};
 
 _name : String = "CLBG::Spectralnorm";
 

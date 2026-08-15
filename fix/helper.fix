@@ -2,10 +2,16 @@
 // generator whose stream is fixed across all languages, and the checksum functions.
 module LangArena.Helper;
 
-import Std;
-import Minilib.Encoding.Json;
-import Minilib.Encoding.Json.JsonDecoder;
-import Minilib.Collection.OrderedMap;
+import Minilib.Collection.OrderedMap::OrderedMap::find;
+import Minilib.Encoding.Json::{Json, Json::{as_array, as_number, as_object, as_string}};
+import Minilib.Encoding.Json.JsonDecoder::decode;
+import Std::{
+    Array, F64, I64, Option, String, U32, U8, Array::{find_by, pop_back, push_back, to_iter, @, @size}, 
+    F64::to_string_precision, FromBytes::from_bytes, Functor::map, 
+    IO::{read_file_string, IOFail, IOFail::from_result}, Iterator::{fold, range}, Monad::{bind, pure}, 
+    Option::{as_some, is_none}, Result::as_ok, String::get_bytes, ToF64::f64, ToI64::i64, ToU32::u32, 
+    Tuple2::{@0, @1}
+};
 
 // The parameters of the linear congruential generator. Every language implements this same
 // generator, and the expected checksums are computed from the stream it produces, so these values

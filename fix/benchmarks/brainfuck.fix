@@ -2,9 +2,14 @@
 // once from a tree of operations walked by recursion.
 module LangArena.Benchmarks.Brainfuck;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{Bench, MakeBench};
+import LangArena.Helper::{bytes_of, config_str};
+import Std::{
+    loop, Array, Bool, I64, String, U32, U8, 
+    Array::{empty, fill, pop_back, push_back, set, to_iter, @, @size}, I64::shift_left, 
+    Iterator::{filter, fold, map, range, sum, to_array}, LoopState::{break, continue}, Option::none, 
+    ToI64::i64, ToU32::u32, U32::shift_left
+};
 
 _array_name : String = "Brainfuck::Array";
 _recursion_name : String = "Brainfuck::Recursion";

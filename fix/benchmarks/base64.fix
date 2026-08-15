@@ -1,9 +1,12 @@
 // Writes a long run of one letter in base 64, and reads it back.
 module LangArena.Benchmarks.Base64;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{bytes_of, checksum_str, config_i64, string_of};
+import Std::{
+    Array, I64, String, U32, U8, Array::{empty, fill, get_sub, push_back, set, @, @size}, 
+    Iterator::{fold, range}, ToI64::i64, ToString::to_string, ToU32::u32, ToU8::u8
+};
 
 _encode_name : String = "Base64::Encode";
 _decode_name : String = "Base64::Decode";

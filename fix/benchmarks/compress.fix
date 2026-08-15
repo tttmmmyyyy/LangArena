@@ -1,8 +1,11 @@
 // The text the compression benchmarks work over.
 module LangArena.Benchmarks.Compress;
 
-import Std;
-import LangArena.Helper;
+import LangArena.Helper::bytes_of;
+import Std::{
+    Array, I64, U8, Add::add, Array::{fill, from_map, mod, @, @size}, Iterator::{fold, range}, 
+    ToI64::i64
+};
 
 // The word the text is laid out from.
 _pattern : Array U8;

@@ -2,12 +2,15 @@
 // the numbered runs back.
 module LangArena.Benchmarks.CompressLzw;
 
-import Std;
-import Hash;
-import HashMap;
-import LangArena.Bench;
-import LangArena.Benchmarks.Compress;
-import LangArena.Helper;
+import HashMap::{contains_key, empty, find, insert};
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Benchmarks.Compress::generate_text;
+import LangArena.Helper::config_i64;
+import Std::{
+    loop, Array, String, U32, U8, Array::{append, empty, from_map, push_back, @, @size}, 
+    Iterator::{fold, map, range, sum}, LoopState::{break, continue}, Option::as_some, ToI64::i64, 
+    ToU32::u32, ToU8::u8
+};
 
 _encode_name : String = "Compress::LZWEncode";
 _decode_name : String = "Compress::LZWDecode";

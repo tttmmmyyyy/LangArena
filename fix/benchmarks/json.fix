@@ -1,14 +1,18 @@
 // Writes a document of coordinates as JSON, and reads the coordinates back out of it.
 module LangArena.Benchmarks.Json;
 
-import Std;
-import Math;
-import Minilib.Collection.OrderedMap;
-import Minilib.Encoding.Json;
-import Minilib.Encoding.Json.JsonDecoder;
-import Minilib.Encoding.Json.JsonEncoder;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
+import Math::round;
+import Minilib.Collection.OrderedMap::OrderedMap::find;
+import Minilib.Encoding.Json::{to_object, Json, Json::{array, as_array, as_number, as_object, bool, number, string}};
+import Minilib.Encoding.Json.JsonDecoder::decode;
+import Minilib.Encoding.Json.JsonEncoder::{encode_with_param, EncodeParam, EncodeParam::{default, set_number_prec}};
+import Std::{
+    Array, F64, I64, String, U32, Array::{empty, push_back, @, @size}, F64::to_string_precision, 
+    Functor::map, Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, 
+    String::find, ToF64::f64, ToString::to_string, Tuple3::{@0, @1, @2}
+};
 
 _generate_name : String = "Json::Generate";
 _parse_dom_name : String = "Json::ParseDom";

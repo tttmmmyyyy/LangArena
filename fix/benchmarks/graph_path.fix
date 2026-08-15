@@ -1,9 +1,14 @@
 // Walks a large sparse graph from one end to the other, breadth first, depth first, and with A*.
 module LangArena.Benchmarks.GraphPath;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{config_i64, next_int, Config, Rng};
+import Std::{
+    loop, Array, I64, String, U32, 
+    Array::{empty, fill, from_map, mod, pop_back, push_back, set, @, @size}, 
+    Iterator::{fold, map, range, sum}, LessThan::min, LoopState::{break, continue}, 
+    Option::{as_some, is_some, none, some}, ToU32::u32, Tuple2::@0
+};
 
 _bfs_name : String = "Graph::BFS";
 _dfs_name : String = "Graph::DFS";

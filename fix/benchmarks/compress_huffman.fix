@@ -2,10 +2,16 @@
 // coded text back.
 module LangArena.Benchmarks.CompressHuffman;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Benchmarks.Compress;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Benchmarks.Compress::{byte_frequencies, generate_text};
+import LangArena.Helper::config_i64;
+import Std::{
+    loop, Array, I64, Option, String, U32, U8, 
+    Array::{empty, fill, from_map, get_sub, push_back, set, sort_stable_by, @, @size}, 
+    I64::{bit_and, shift_left}, Iterator::{fold, map, range, sum}, LoopState::{break, continue}, 
+    Option::{as_some, none, some}, ToI64::i64, ToU32::u32, ToU8::u8, Tuple2::{@0, @1}, 
+    U8::{bit_and, bit_or, shift_left, shift_right}
+};
 
 _encode_name : String = "Compress::HuffEncode";
 _decode_name : String = "Compress::HuffDecode";

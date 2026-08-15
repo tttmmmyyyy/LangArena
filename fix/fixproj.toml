@@ -25,6 +25,7 @@ files = [
     "benchmarks/game_of_life.fix",
     "benchmarks/graph_path.fix",
     "benchmarks/json.fix",
+    "benchmarks/log_parser.fix",
     "benchmarks/mandelbrot.fix",
     "benchmarks/matmul.fix",
     "benchmarks/maze.fix",

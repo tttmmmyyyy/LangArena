@@ -2,10 +2,13 @@
 // iteration so that the allocation is part of the work.
 module LangArena.Benchmarks.Sieve;
 
-import Std;
-import LangArena.Bench;
-import Math;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::config_i64;
+import Math::sqrt;
+import Std::{
+    I64, String, U32, Array::{fill, set, @}, Iterator::{fold, map, range, range_step, sum}, ToF64::f64, 
+    ToI64::i64, ToU32::u32
+};
 
 _name : String = "Etc::Sieve";
 

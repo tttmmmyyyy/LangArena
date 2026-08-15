@@ -2,9 +2,12 @@
 // hand-written merge sort, and by the sort the standard library provides.
 module LangArena.Benchmarks.Sort;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{Bench, MakeBench};
+import LangArena.Helper::{config_i64, next_int, Rng};
+import Std::{
+    loop, Array, I32, I64, String, U32, Array::{empty, fill, push_back, set, sort, @, @size}, 
+    Iterator::{fold, range}, LoopState::{break, continue}, Option::some, ToI32::i32, ToU32::u32
+};
 
 _quick_name : String = "Sort::Quick";
 _merge_name : String = "Sort::Merge";

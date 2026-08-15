@@ -2,9 +2,12 @@
 // copy of the image to the buffer, so the buffer the checksum is taken over keeps growing.
 module LangArena.Benchmarks.Mandelbrot;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{bytes_of, checksum_bytes, config_i64};
+import Std::{
+    loop, Array, Bool, F64, I64, String, U8, Array::{empty, push_back, to_iter}, Iterator::{fold, range}, 
+    LoopState::{break, continue}, ToF64::f64, ToString::to_string, ToU8::u8, U8::shift_left
+};
 
 _name : String = "CLBG::Mandelbrot";
 

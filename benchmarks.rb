@@ -69,6 +69,7 @@ LANG_MASKS = {
   'python' => ['./python', ['.py'], ['__pycache__']],
   'odin' => ['./odin', ['.odin'], ['target']],
   'scala' => ['./scala', ['.scala'], ['target', 'project']],
+  'fix' => ['./fix', ['.fix'], ['target', '.fixlang']],
 }
 
 def check_source_files(verbose = false)
@@ -2187,9 +2188,23 @@ RUNS = [
     run_cmd: "pypy3 main.py", 
     version_cmd: "pypy3 --version",
     dir: "/src/python",
-    container: "pypy",   
-    group: :prod, 
+    container: "pypy",
+    group: :prod,
     deps_cmd: "true",
+  ),
+
+  # ======================================= Fix ======================================================
+
+  Run.new(
+    name: "Fix",
+    build_cmd: "fix build --allow-preliminary-commands -O max -o ./target/bin_fix",
+    binary_name: "./target/bin_fix",
+    run_cmd: "./target/bin_fix",
+    version_cmd: "fix --version",
+    dir: "/src/fix",
+    container: "fix",
+    group: :prod,
+    deps_cmd: "fix deps update",
   ),
 
 ]

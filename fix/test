@@ -1,4 +1,4 @@
 #!/bin/sh
-rm -f target/bin_run
-fix build --allow-preliminary-commands -O max -o target/bin_run
-target/bin_run ../test.js "$@"
+rm -f target/bin_fix
+fix build --allow-preliminary-commands -O max -o target/bin_fix
+target/bin_fix ../test.js "$@"

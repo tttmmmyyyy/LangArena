@@ -22,13 +22,14 @@ LANG_MASKS = {
   'python' => ['./python', ['.py'], ['__pycache__'], "yapf --in-place --style=google $@"],
   'odin' => ['./odin', ['.odin'], ['target'], "odinfmt -w $@"],
   'scala' => ['./scala', ['.scala'], ['target', 'project'], "\"/Users/kostya/Library/Application Support/Coursier/bin/scalafmt\" $@"],
+  'fix' => ['./fix', ['.fix'], ['target', '.fixlang'], 'true'],
 }
 
 def remove_comments(filepath, lang)
   content = File.read(filepath, encoding: 'utf-8')
   
   case lang
-  when 'c', 'cpp', 'golang', 'rust', 'csharp', 'swift', 'java', 'kotlin', 'd', 'v', 'fsharp', 'dart', 'zig', 'odin', 'scala', 'c3'
+  when 'c', 'cpp', 'golang', 'rust', 'csharp', 'swift', 'java', 'kotlin', 'd', 'v', 'fsharp', 'dart', 'zig', 'odin', 'scala', 'c3', 'fix'
     lines = content.lines.map do |line|
       in_string = false
       string_char = nil

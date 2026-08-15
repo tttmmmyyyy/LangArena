@@ -1,35 +1,40 @@
 module Main;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
-import LangArena.Benchmarks.Base64;
-import LangArena.Benchmarks.Binarytrees;
-import LangArena.Benchmarks.Brainfuck;
-import LangArena.Benchmarks.BufferHash;
-import LangArena.Benchmarks.CacheSimulation;
-import LangArena.Benchmarks.Calculator;
-import LangArena.Benchmarks.CompressArith;
-import LangArena.Benchmarks.CompressBwt;
-import LangArena.Benchmarks.CompressHuffman;
-import LangArena.Benchmarks.CompressLzw;
-import LangArena.Benchmarks.CsvParse;
-import LangArena.Benchmarks.Distance;
-import LangArena.Benchmarks.Fannkuchredux;
-import LangArena.Benchmarks.GameOfLife;
-import LangArena.Benchmarks.GraphPath;
-import LangArena.Benchmarks.Json;
-import LangArena.Benchmarks.Mandelbrot;
-import LangArena.Benchmarks.Matmul;
-import LangArena.Benchmarks.Maze;
-import LangArena.Benchmarks.Nbody;
-import LangArena.Benchmarks.NeuralNet;
-import LangArena.Benchmarks.Sieve;
-import LangArena.Benchmarks.Sort;
-import LangArena.Benchmarks.Spectralnorm;
-import LangArena.Benchmarks.Template;
-import LangArena.Benchmarks.TextRaytracer;
-import LangArena.Benchmarks.Words;
+import LangArena.Bench::{run_all, unix_millis, MakeBench};
+import LangArena.Benchmarks.Base64::{decode_entry, encode_entry};
+import LangArena.Benchmarks.Binarytrees::{arena_entry, obj_entry};
+import LangArena.Benchmarks.Brainfuck::{array_entry, recursion_entry};
+import LangArena.Benchmarks.BufferHash::{crc32_entry, sha256_entry};
+import LangArena.Benchmarks.CacheSimulation::entry;
+import LangArena.Benchmarks.Calculator::{ast_entry, interpreter_entry};
+import LangArena.Benchmarks.CompressArith::{decode_entry, encode_entry};
+import LangArena.Benchmarks.CompressBwt::{decode_entry, encode_entry};
+import LangArena.Benchmarks.CompressHuffman::{decode_entry, encode_entry};
+import LangArena.Benchmarks.CompressLzw::{decode_entry, encode_entry};
+import LangArena.Benchmarks.CsvParse::entry;
+import LangArena.Benchmarks.Distance::{jaro_entry, ngram_entry};
+import LangArena.Benchmarks.Fannkuchredux::entry;
+import LangArena.Benchmarks.GameOfLife::entry;
+import LangArena.Benchmarks.GraphPath::{astar_entry, bfs_entry, dfs_entry};
+import LangArena.Benchmarks.Json::{generate_entry, parse_dom_entry, parse_mapping_entry};
+import LangArena.Benchmarks.LogParser::entry;
+import LangArena.Benchmarks.Mandelbrot::entry;
+import LangArena.Benchmarks.Matmul::{single_entry, t16_entry, t4_entry, t8_entry};
+import LangArena.Benchmarks.Maze::{astar_entry, bfs_entry, generator_entry};
+import LangArena.Benchmarks.Nbody::entry;
+import LangArena.Benchmarks.NeuralNet::entry;
+import LangArena.Benchmarks.Sieve::entry;
+import LangArena.Benchmarks.Sort::{merge_entry, quick_entry, self_entry};
+import LangArena.Benchmarks.Spectralnorm::entry;
+import LangArena.Benchmarks.Template::{parse_entry, regexp_entry};
+import LangArena.Benchmarks.TextRaytracer::entry;
+import LangArena.Benchmarks.Words::entry;
+import LangArena.Helper::read_config;
+import Std::{
+    Array, IO, Option, String, Array::{get_sub, to_iter, @, @size}, Functor::map, 
+    IO::{exit, exit_with_msg, get_args, println, write_file_string, IOFail::try}, Iterator::check_any, 
+    Monad::pure, Option::{is_some, none, some}, String::find, ToString::to_string
+};
 
 // Every benchmark this implementation provides. The runner looks names up here as it walks the
 // configuration, so a name the configuration lists and this table lacks is reported and skipped.
@@ -65,6 +70,7 @@ _registry = [
     Json::generate_entry,
     Json::parse_dom_entry,
     Json::parse_mapping_entry,
+    LogParser::entry,
     Mandelbrot::entry,
     Matmul::single_entry,
     Matmul::t16_entry,

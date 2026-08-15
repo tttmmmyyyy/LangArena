@@ -2,10 +2,13 @@
 // Computer Language Benchmarks Game.
 module LangArena.Benchmarks.Nbody;
 
-import Std;
-import LangArena.Bench;
-import Math;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::checksum_float;
+import Math::{pi64, sqrt};
+import Std::{
+    Array, F64, I64, String, Array::{set, to_iter, @, @size}, Iterator::{fold, range}, 
+    U32::{bit_and, shift_left}
+};
 
 _name : String = "CLBG::Nbody";
 

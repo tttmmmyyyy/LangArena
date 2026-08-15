@@ -5,9 +5,12 @@
 // cell cannot be mutated while eight other cells hold a reference to it.
 module LangArena.Benchmarks.GameOfLife;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{config_i64, next_float};
+import Std::{
+    Array, F64, I64, String, U32, U8, Array::{empty, fill, from_map, push_back, set, @, @size}, 
+    Iterator::{fold, range}, ToI64::i64, ToU32::u32, Tuple2::@0, U32::bit_xor
+};
 
 _name : String = "Etc::GameOfLife";
 

@@ -832,3 +832,23 @@ services:
       - ./cache/build/mycc/target:/src/c/target
     depends_on:
       - base_clang
+
+  fix:
+    <<: *shared
+    image: benchmarks:fix
+    working_dir: /src/fix
+    build:
+      dockerfile: docker/fix
+      args:
+        # https://github.com/tttmmmyyyy/fixlang/releases
+        version: v1.5.0
+    volumes:
+      - .:/src
+
+      - ./cache/deps/fix/deps:/src/fix/.fixlang/deps
+
+      - ./cache/build/fix/target:/src/fix/target
+      - ./cache/build/fix/cache:/src/fix/.fixlang/cache
+      - ./cache/build/fix/intermediate:/src/fix/.fixlang/intermediate
+    depends_on:
+      - base

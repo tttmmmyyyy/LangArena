@@ -1,13 +1,16 @@
 // Fills the placeholders of a generated HTML page with the values a table gives for them.
 module LangArena.Benchmarks.Template;
 
-import Std;
-import Hash;
-import HashMap;
-import RegExp;
-import RegExp.RegExpNFA;
-import LangArena.Bench;
-import LangArena.Helper;
+import HashMap::{empty, find, insert, HashMap};
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{append_str, bytes_of, checksum_bytes, config_i64};
+import RegExp::RegExp::{compile, @nfa};
+import RegExp.RegExpNFA::{NFA, NFA::search_all};
+import Std::{
+    loop, Array, Bool, I64, String, U32, U8, 
+    Array::{append, empty, get_sub, push_back, to_iter, @, @size}, Iterator::{fold, range}, 
+    LoopState::{break, continue}, Result::as_ok, ToString::to_string, ToU32::u32
+};
 
 _parse_name : String = "Template::Parse";
 _regex_name : String = "Template::Regex";

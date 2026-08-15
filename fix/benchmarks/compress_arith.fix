@@ -2,10 +2,14 @@
 // the coded number back.
 module LangArena.Benchmarks.CompressArith;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Benchmarks.Compress;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Benchmarks.Compress::{byte_frequencies, generate_text};
+import LangArena.Helper::config_i64;
+import Std::{
+    loop, Array, I64, String, U32, U64, U8, Array::{empty, fill, push_back, set, @, @size}, 
+    Iterator::{fold, map, range, sum}, LoopState::{break, continue}, ToI64::i64, ToU32::u32, ToU64::u64, 
+    ToU8::u8, U64::{bit_and, bit_or, shift_left}, U8::{bit_and, bit_or, shift_left, shift_right}
+};
 
 _encode_name : String = "Compress::ArithEncode";
 _decode_name : String = "Compress::ArithDecode";

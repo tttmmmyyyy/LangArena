@@ -1,7 +1,10 @@
 // The priority queue the path searches take their next cell or vertex from.
 module LangArena.Heap;
 
-import Std;
+import Std::{
+    loop, Array, Bool, I64, Array::{pop_back, push_back, set, @, @size}, LoopState::{break, continue}, 
+    Tuple2::{@0, @1}
+};
 
 // Whether one item comes before another: their first elements decide, and their second elements
 // break the tie.

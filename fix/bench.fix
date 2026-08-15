@@ -1,9 +1,14 @@
 // The benchmark interface and the loop that runs one benchmark and reports its time.
 module LangArena.Bench;
 
-import Std;
-import Time;
-import LangArena.Helper;
+import LangArena.Helper::{config_i64, make_rng, names, to_lower_ascii, Config, Rng};
+import Std::{
+    Array, Bool, F64, I64, IO, Lazy, Option, String, U32, Array::{find_by, to_iter, @}, 
+    F64::to_string_precision, IO::{from_runner, print, println}, Iterator::{filter, fold_m}, 
+    LessThan::max, Monad::pure, Option::{as_some, is_none, is_some, none}, String::find, ToF64::f64, 
+    ToI64::i64, ToString::to_string, ToU32::u32, Tuple2::{@0, @1}
+};
+import Time::{get_now, get_now_monotonic, Time::{@nanosec, @sec}};
 
 // A benchmark whose input has already been built.
 //

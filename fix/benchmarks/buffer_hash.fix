@@ -2,9 +2,13 @@
 // from the initial constants of SHA-256. Both walk the same buffer, so they share its generation.
 module LangArena.Benchmarks.BufferHash;
 
-import Std;
-import LangArena.Bench;
-import LangArena.Helper;
+import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Helper::{config_i64, next_int, Rng};
+import Std::{
+    Array, I64, String, U32, U8, Array::{empty, fill, push_back, set, to_iter, @, @size}, 
+    Iterator::{fold, map, range, sum}, ToU32::u32, ToU8::u8, 
+    U32::{bit_and, bit_xor, shift_left, shift_right}
+};
 
 _crc32_name : String = "Hash::CRC32";
 _sha256_name : String = "Hash::SHA256";
