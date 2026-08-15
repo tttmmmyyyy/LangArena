@@ -67,4 +67,4 @@ git = { url = "https://github.com/tttmmmyyyy/fixlang-hashmap.git" }
 [[dependencies]]
 name = "regexp"
 version = "1.1.3"
-git = { url = "https://github.com/tttmmmyyyy/fixlang-regexp.git" }
+git = { url = "https://github.com/tttmmmyyyy/fixlang-regexp.git", rev = "555056d9d0b7fbd9fffe15129b7f8db3bd13f7f9" }
