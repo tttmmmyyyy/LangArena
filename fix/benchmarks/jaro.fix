@@ -1,0 +1,131 @@
+// Measures the Jaro similarity of a thousand pairs of short strings drawn from a ten-letter
+// alphabet.
+module LangArena.Benchmarks.Jaro;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_name : String = "Distance::Jaro";
+
+// The letters the strings are drawn from.
+_alphabet : Array U8;
+_alphabet = "abcdefghij".bytes_of;
+
+// Draws a string of the given length.
+//
+// # Parameters
+// * `length` - How many letters to draw.
+// * `rng` - The generator the letters come from.
+_draw_string : I64 -> Rng -> (Array U8, Rng);
+_draw_string = |length, rng| (
+    range(0, length).fold((Array::empty(length), rng), |_, (letters, rng)|
+        let (index, rng) = rng.next_int(10);
+        (letters.push_back(_alphabet.@(index)), rng)
+    )
+);
+
+// Draws the pairs of strings the benchmark compares.
+//
+// # Parameters
+// * `n` - How many pairs to draw.
+// * `m` - One past the largest number of letters drawn beyond the four every string has.
+// * `rng` - The generator the strings come from.
+_draw_pairs : I64 -> I64 -> Rng -> Array (Array U8, Array U8);
+_draw_pairs = |n, m, rng| (
+    // Both lengths are drawn before either string, which is the order the stream has to be read in.
+    let (pairs, _) = range(0, n).fold((Array::empty(n), rng), |_, (pairs, rng)|
+        let (len1, rng) = rng.next_int(m);
+        let (len2, rng) = rng.next_int(m);
+        let (first, rng) = _draw_string(len1 + 4, rng);
+        let (second, rng) = _draw_string(len2 + 4, rng);
+        (pairs.push_back((first, second)), rng)
+    );
+    pairs
+);
+
+// Marks the letters of each string that the other one has within the matching window, and returns
+// the two marker arrays with how many letters matched.
+//
+// # Parameters
+// * `window` - How far apart two letters may stand and still match.
+// * `first` - The first string.
+// * `second` - The second string.
+_mark_matches : I64 -> Array U8 -> Array U8 -> (Array Bool, Array Bool, I64);
+_mark_matches = |window, first, second| (
+    let len2 = second.@size;
+    range(0, first.@size).fold((fill(first.@size, false), fill(len2, false), 0),
+        |i, (first_marks, second_marks, matches)|
+            let start = max(0, i - window);
+            let end = min(len2 - 1, i + window);
+            let found = loop(start, |j|
+                if j > end { break $ none() };
+                if !second_marks.@(j) && first.@(i) == second.@(j) { break $ some(j) };
+                continue $ j + 1
+            );
+            match found {
+                none() => (first_marks, second_marks, matches),
+                some(j) => (first_marks.set(i, true), second_marks.set(j, true), matches + 1)
+            }
+    )
+);
+
+// How many of the matched letters stand in a different order in the two strings, counted as pairs.
+//
+// # Parameters
+// * `first` - The first string.
+// * `second` - The second string.
+// * `marks` - The letters of each string that matched.
+_count_transpositions : Array U8 -> Array U8 -> (Array Bool, Array Bool) -> I64;
+_count_transpositions = |first, second, (first_marks, second_marks)| (
+    let len2 = second.@size;
+    let (transpositions, _) = range(0, first.@size).fold((0, 0), |i, (transpositions, k)|
+        if !first_marks.@(i) { (transpositions, k) };
+        let k = loop(k, |k| if k < len2 && !second_marks.@(k) { continue $ k + 1 } else { break $ k });
+        if k >= len2 { (transpositions, k) };
+        (transpositions + if first.@(i) != second.@(k) { 1 } else { 0 }, k + 1)
+    );
+    transpositions / 2
+);
+
+// The Jaro similarity of two strings, one for equal strings and zero for strings sharing no letter.
+//
+// # Parameters
+// * `first` - The first string.
+// * `second` - The second string.
+_jaro : Array U8 -> Array U8 -> F64;
+_jaro = |first, second| (
+    let (len1, len2) = (first.@size, second.@size);
+    if len1 == 0 || len2 == 0 { 0.0 };
+    let window = max(0, max(len1, len2) / 2 - 1);
+    let (first_marks, second_marks, matches) = _mark_matches(window, first, second);
+    if matches == 0 { 0.0 };
+    let transpositions = _count_transpositions(first, second, (first_marks, second_marks));
+    let m = matches.f64;
+    (m / len1.f64 + m / len2.f64 + (m - transpositions.f64) / m) / 3.0
+);
+
+// The benchmark holding the pairs and the sum of the similarities so far.
+//
+// # Parameters
+// * `pairs` - The pairs of strings to compare.
+// * `total` - The sum of the similarities so far.
+_make_bench : Array (Array U8, Array U8) -> U32 -> Bench;
+_make_bench = |pairs, total| Bench::make(
+    |iterations| (
+        let total = range(0, iterations).fold(total, |_, total|
+            range(0, pairs.@size).fold(total, |i, total|
+                let (first, second) = pairs.@(i);
+                total + (_jaro(first, second) * 1000.0).u32
+            )
+        );
+        _make_bench(pairs, total)
+    ),
+    |_| total
+);
+
+// The benchmark, as the runner's registry holds it.
+entry : (String, MakeBench);
+entry = (_name, |config, rng|
+    _make_bench(_draw_pairs(config.config_i64(_name, "count"), config.config_i64(_name, "size"), rng), 0_U32)
+);

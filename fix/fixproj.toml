@@ -12,6 +12,7 @@ files = [
     "benchmarks/buffer_hash.fix",
     "benchmarks/fannkuchredux.fix",
     "benchmarks/game_of_life.fix",
+    "benchmarks/jaro.fix",
     "benchmarks/mandelbrot.fix",
     "benchmarks/matmul.fix",
     "benchmarks/nbody.fix",
