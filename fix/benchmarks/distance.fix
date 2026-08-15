@@ -1,12 +1,15 @@
-// Measures the Jaro similarity of a thousand pairs of short strings drawn from a ten-letter
-// alphabet.
-module LangArena.Benchmarks.Jaro;
+// Measures how alike the strings of each of a number of pairs are, drawn from a ten-letter
+// alphabet, letter by letter and by the four-letter runs they share.
+module LangArena.Benchmarks.Distance;
 
 import Std;
+import Hash;
+import HashMap;
 import LangArena.Bench;
 import LangArena.Helper;
 
-_name : String = "Distance::Jaro";
+_jaro_name : String = "Distance::Jaro";
+_ngram_name : String = "Distance::NGram";
 
 // The letters the strings are drawn from.
 _alphabet : Array U8;
@@ -105,27 +108,92 @@ _jaro = |first, second| (
     (m / len1.f64 + m / len2.f64 + (m - transpositions.f64) / m) / 3.0
 );
 
+// How many letters long the runs are that the second measure counts.
+_gram_size : I64 = 4;
+
+// The run of four letters standing at a position, packed into one number, the earliest letter
+// highest.
+//
+// # Parameters
+// * `at` - Where the run starts.
+// * `letters` - The string to read the run from.
+_gram_at : I64 -> Array U8 -> U32;
+_gram_at = |at, letters| (
+    letters.@(at).u32.shift_left(24_U32)
+        .bit_or(letters.@(at + 1).u32.shift_left(16_U32))
+        .bit_or(letters.@(at + 2).u32.shift_left(8_U32))
+        .bit_or(letters.@(at + 3).u32)
+);
+
+// How often each run of four letters occurs in a string.
+//
+// # Parameters
+// * `letters` - The string to count the runs of.
+_count_grams : Array U8 -> HashMap U32 I64;
+_count_grams = |letters| (
+    range(0, letters.@size - _gram_size + 1).fold(HashMap::empty(letters.@size), |at, grams|
+        let gram = letters._gram_at(at);
+        let count = grams.find_or(gram, 0);
+        grams.insert(gram, count + 1)
+    )
+);
+
+// How alike two strings are by the runs of four letters they share: how many runs of the second the
+// first holds at least as many of, over how many distinct runs the two have between them. Strings
+// too short to hold a run are called wholly unalike.
+//
+// # Parameters
+// * `first` - The first string.
+// * `second` - The second string.
+_ngram : Array U8 -> Array U8 -> F64;
+_ngram = |first, second| (
+    let (len1, len2) = (first.@size, second.@size);
+    if len1 < _gram_size || len2 < _gram_size { 0.0 };
+    let grams1 = _count_grams(first);
+    let (grams2, shared) = range(0, len2 - _gram_size + 1).fold(
+        (HashMap::empty(len2), 0), |at, (grams2, shared)|
+        let gram = second._gram_at(at);
+        let count = grams2.find_or(gram, 0) + 1;
+        let grams2 = grams2.insert(gram, count);
+        let held = grams1.find_or(gram, 0);
+        (grams2, shared + if held > 0 && count <= held { 1 } else { 0 })
+    );
+    let total = grams1.@size + grams2.@size;
+    if total == 0 { 0.0 };
+    shared.f64 / total.f64
+);
+
 // The benchmark holding the pairs and the sum of the similarities so far.
 //
 // # Parameters
+// * `measure` - The measure of how alike two strings are.
 // * `pairs` - The pairs of strings to compare.
 // * `total` - The sum of the similarities so far.
-_make_bench : Array (Array U8, Array U8) -> U32 -> Bench;
-_make_bench = |pairs, total| Bench::make(
+_make_bench : (Array U8 -> Array U8 -> F64) -> Array (Array U8, Array U8) -> U32 -> Bench;
+_make_bench = |measure, pairs, total| Bench::make(
     |iterations| (
         let total = range(0, iterations).fold(total, |_, total|
             range(0, pairs.@size).fold(total, |i, total|
                 let (first, second) = pairs.@(i);
-                total + (_jaro(first, second) * 1000.0).u32
+                total + (measure(first, second) * 1000.0).u32
             )
         );
-        _make_bench(pairs, total)
+        _make_bench(measure, pairs, total)
     ),
     |_| total
 );
 
-// The benchmark, as the runner's registry holds it.
-entry : (String, MakeBench);
-entry = (_name, |config, rng|
-    _make_bench(_draw_pairs(config.config_i64(_name, "count"), config.config_i64(_name, "size"), rng), 0_U32)
-);
+// The benchmarks, as the runner's registry holds them.
+jaro_entry : (String, MakeBench);
+jaro_entry = (_jaro_name, |config, rng| _make_bench(
+    _jaro,
+    _draw_pairs(config.config_i64(_jaro_name, "count"), config.config_i64(_jaro_name, "size"), rng),
+    0_U32
+));
+
+ngram_entry : (String, MakeBench);
+ngram_entry = (_ngram_name, |config, rng| _make_bench(
+    _ngram,
+    _draw_pairs(config.config_i64(_ngram_name, "count"), config.config_i64(_ngram_name, "size"), rng),
+    0_U32
+));

@@ -1,0 +1,137 @@
+// Writes a long run of one letter in base 64, and reads it back.
+module LangArena.Benchmarks.Base64;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_encode_name : String = "Base64::Encode";
+_decode_name : String = "Base64::Decode";
+
+// The characters the six-bit pieces are written with, and the one that pads the last group out to
+// four characters.
+_alphabet : Array U8;
+_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".bytes_of;
+
+_padding : U8 = '=';
+
+// The six-bit piece each character stands for. The padding is left at zero, since the bytes the
+// padded group produces are cut away by their count.
+_pieces : Array I64;
+_pieces = range(0, 64).fold(fill(256, 0), |piece, pieces| pieces.set(_alphabet.@(piece).i64, piece));
+
+// Writes bytes in base 64: every three bytes become four characters, each standing for six bits of
+// them, and a last group of one or two bytes is padded out to four characters.
+//
+// # Parameters
+// * `bytes` - The bytes to write.
+_code : Array U8 -> Array U8;
+_code = |bytes| (
+    let n = bytes.@size;
+    let groups = n / 3;
+    let coded = range(0, groups).fold(Array::empty((n + 2) / 3 * 4), |group, coded|
+        let at = group * 3;
+        let piece = bytes.@(at).i64 * 65536 + bytes.@(at + 1).i64 * 256 + bytes.@(at + 2).i64;
+        coded.push_back(_alphabet.@(piece / 262144))
+             .push_back(_alphabet.@(piece / 4096 % 64))
+             .push_back(_alphabet.@(piece / 64 % 64))
+             .push_back(_alphabet.@(piece % 64))
+    );
+    let rest = n - groups * 3;
+    if rest == 0 { coded };
+    if rest == 1 {
+        let piece = bytes.@(groups * 3).i64 * 16;
+        coded.push_back(_alphabet.@(piece / 64)).push_back(_alphabet.@(piece % 64))
+             .push_back(_padding).push_back(_padding)
+    };
+    let piece = bytes.@(groups * 3).i64 * 1024 + bytes.@(groups * 3 + 1).i64 * 4;
+    coded.push_back(_alphabet.@(piece / 4096)).push_back(_alphabet.@(piece / 64 % 64))
+         .push_back(_alphabet.@(piece % 64)).push_back(_padding)
+);
+
+// Reads bytes back out of base 64.
+//
+// # Parameters
+// * `coded` - The characters to read.
+_read : Array U8 -> Array U8;
+_read = |coded| (
+    let n = coded.@size;
+    if n == 0 { Array::empty(0) };
+    let padded = if coded.@(n - 1) != _padding { 0 }
+        else if coded.@(n - 2) != _padding { 1 } else { 2 };
+    let groups = n / 4;
+    let bytes = range(0, groups).fold(Array::empty(groups * 3), |group, bytes|
+        let at = group * 4;
+        let piece = _pieces.@(coded.@(at).i64) * 262144 + _pieces.@(coded.@(at + 1).i64) * 4096
+            + _pieces.@(coded.@(at + 2).i64) * 64 + _pieces.@(coded.@(at + 3).i64);
+        bytes.push_back((piece / 65536).u8).push_back((piece / 256).u8).push_back(piece.u8)
+    );
+    bytes.get_sub(0, groups * 3 - padded)
+);
+
+// The first four characters of a string with an ellipsis behind them, or the whole string when it
+// is no longer than four.
+//
+// # Parameters
+// * `text` - The string to shorten.
+_shortened : Array U8 -> String;
+_shortened = |text| (
+    if text.@size <= 4 { text.string_of };
+    text.get_sub(0, 4).string_of + "..."
+);
+
+// The writing benchmark, which counts the characters each writing produces and reports a line
+// naming what it wrote and what it wrote it as.
+//
+// # Parameters
+// * `text` - The bytes to write.
+// * `coded` - What the last writing produced.
+// * `total` - The count of the writings so far.
+_make_encode_bench : Array U8 -> Array U8 -> U32 -> Bench;
+_make_encode_bench = |text, coded, total| Bench::make(
+    |iterations| (
+        let (coded, total) = range(0, iterations).fold((coded, total), |_, (_, total)|
+            let coded = _code(text);
+            (coded, total + coded.@size.u32)
+        );
+        _make_encode_bench(text, coded, total)
+    ),
+    |_| checksum_str(
+        "encode " + text._shortened + " to " + coded._shortened + ": " + total.to_string
+    )
+);
+
+// The reading benchmark, which counts the bytes each reading produces and reports a line naming
+// what it read and what it read it as.
+//
+// # Parameters
+// * `coded` - The characters to read.
+// * `text` - What the last reading produced.
+// * `total` - The count of the readings so far.
+_make_decode_bench : Array U8 -> Array U8 -> U32 -> Bench;
+_make_decode_bench = |coded, text, total| Bench::make(
+    |iterations| (
+        let (text, total) = range(0, iterations).fold((text, total), |_, (_, total)|
+            let text = _read(coded);
+            (text, total + text.@size.u32)
+        );
+        _make_decode_bench(coded, text, total)
+    ),
+    |_| checksum_str(
+        "decode " + coded._shortened + " to " + text.get_sub(0, 4).string_of + "...: "
+            + total.to_string
+    )
+);
+
+// The benchmarks, as the runner's registry holds them.
+encode_entry : (String, MakeBench);
+encode_entry = (_encode_name, |config, _|
+    let text = fill(config.config_i64(_encode_name, "size"), 'a');
+    _make_encode_bench(text, _code(text), 0_U32)
+);
+
+decode_entry : (String, MakeBench);
+decode_entry = (_decode_name, |config, _|
+    let coded = _code(fill(config.config_i64(_decode_name, "size"), 'a'));
+    _make_decode_bench(coded, _read(coded), 0_U32)
+);

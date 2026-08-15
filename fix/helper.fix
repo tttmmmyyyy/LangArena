@@ -69,6 +69,13 @@ checksum_bytes = |bytes| (
 bytes_of : String -> Array U8;
 bytes_of = |str| str.get_bytes.pop_back;
 
+// A string made of the given bytes.
+//
+// # Parameters
+// * `bytes` - The bytes of the string.
+string_of : Array U8 -> String;
+string_of = |bytes| bytes.push_back(0_U8).from_bytes.as_ok;
+
 // The DJB2 hash of a string's bytes.
 //
 // # Parameters
