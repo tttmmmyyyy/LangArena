@@ -1,0 +1,166 @@
+// Runs the Burrows-Wheeler transform over a periodic text, and its inverse over what the transform
+// produced.
+module LangArena.Benchmarks.CompressBwt;
+
+import Std;
+import LangArena.Bench;
+import LangArena.Helper;
+
+_encode_name : String = "Compress::BWTEncode";
+_decode_name : String = "Compress::BWTDecode";
+
+// The text the benchmarks transform is this word laid end to end.
+_pattern : Array U8;
+_pattern = "ABRACADABRA".bytes_of;
+
+// Lays the pattern end to end until the text is the given length.
+//
+// # Parameters
+// * `size` - Length of the text in bytes.
+_generate_text : I64 -> Array U8;
+_generate_text = |size| from_map(size, |i| _pattern.@(i % _pattern.@size));
+
+// Where each byte value's run begins once the bytes are sorted, which is the first column of the
+// rotation matrix.
+//
+// # Parameters
+// * `bytes` - The bytes to count.
+_bucket_starts : Array U8 -> Array I64;
+_bucket_starts = |bytes| (
+    let counts = range(0, bytes.@size).fold(fill(256, 0), |i, counts|
+        counts.mod(bytes.@(i).i64, add(1))
+    );
+    let (starts, _) = range(0, 256).fold((fill(256, 0), 0), |value, (starts, total)|
+        (starts.set(value, total), total + counts.@(value))
+    );
+    starts
+);
+
+// The rotations of the text, as their starting offsets in the order the rotations sort in.
+//
+// The order is found by doubling: the rotations are first ordered by their first byte, and each
+// round then orders them by twice as many bytes, using the order of the round before as the key.
+//
+// # Parameters
+// * `text` - The text to sort the rotations of.
+_sort_rotations : Array U8 -> Array I64;
+_sort_rotations = |text| (
+    let n = text.@size;
+    let starts = _bucket_starts(text);
+    let (order, _) = range(0, n).fold((fill(n, 0), starts), |i, (order, next_free)|
+        let value = text.@(i).i64;
+        (order.set(next_free.@(value), i), next_free.mod(value, add(1)))
+    );
+    if n <= 1 { order };
+    let (rank, _, _) = range(0, n).fold((fill(n, 0), 0, text.@(order.@(0))), |i, (rank, current, previous)|
+        let index = order.@(i);
+        let byte = text.@(index);
+        let (current, previous) = if byte != previous { (current + 1, byte) } else { (current, previous) };
+        (rank.set(index, current), current, previous)
+    );
+    let (order, _, _) = loop((order, rank, 1), |(order, rank, k)|
+        if k >= n { break $ (order, rank, k) };
+        let order = order.sort_stable_by(|(a, b)|
+            let (ra, rb) = (rank.@(a), rank.@(b));
+            if ra != rb { ra < rb };
+            rank.@((a + k) % n) < rank.@((b + k) % n)
+        );
+        let rank = range(1, n).fold(fill(n, 0), |i, new_rank|
+            let (previous, current) = (order.@(i - 1), order.@(i));
+            let same = rank.@(previous) == rank.@(current)
+                && rank.@((previous + k) % n) == rank.@((current + k) % n);
+            new_rank.set(current, new_rank.@(previous) + if same { 0 } else { 1 })
+        );
+        continue $ (order, rank, k * 2)
+    );
+    order
+);
+
+// The last column of the sorted rotation matrix, with the row the text itself stands in.
+//
+// # Parameters
+// * `text` - The text to transform.
+_bwt_transform : Array U8 -> (Array U8, I64);
+_bwt_transform = |text| (
+    let n = text.@size;
+    if n == 0 { (Array::empty(0), 0) };
+    let order = _sort_rotations(text);
+    range(0, n).fold((fill(n, 0_U8), 0), |i, (transformed, original_row)|
+        let rotation = order.@(i);
+        if rotation == 0 { (transformed.set(i, text.@(n - 1)), i) };
+        (transformed.set(i, text.@(rotation - 1)), original_row)
+    )
+);
+
+// The text a transform came from.
+//
+// Sorting the last column gives the first, and walking the link from each row to the row its byte
+// heads spells the text out.
+//
+// # Parameters
+// * `transformed` - The last column of the sorted rotation matrix.
+// * `original_row` - The row the text itself stands in.
+_bwt_inverse : Array U8 -> I64 -> Array U8;
+_bwt_inverse = |transformed, original_row| (
+    let n = transformed.@size;
+    if n == 0 { Array::empty(0) };
+    let starts = _bucket_starts(transformed);
+    let (next, _) = range(0, n).fold((fill(n, 0), starts), |i, (next, next_free)|
+        let value = transformed.@(i).i64;
+        (next.set(next_free.@(value), i), next_free.mod(value, add(1)))
+    );
+    let (text, _) = range(0, n).fold((fill(n, 0_U8), original_row), |i, (text, row)|
+        let row = next.@(row);
+        (text.set(i, transformed.@(row)), row)
+    );
+    text
+);
+
+// The encoding benchmark, which counts the bytes each transform produces.
+//
+// # Parameters
+// * `text` - The text to transform.
+// * `total` - The count of the transforms so far.
+_make_encode_bench : Array U8 -> U32 -> Bench;
+_make_encode_bench = |text, total| Bench::make(
+    |iterations| (
+        let total = total + range(0, iterations).map(|_| _bwt_transform(text).@0.@size.u32).sum;
+        _make_encode_bench(text, total)
+    ),
+    |_| total
+);
+
+// The decoding benchmark, which counts the bytes each inverse produces and adds a hundred thousand
+// once the inverse is shown to give the text back.
+//
+// # Parameters
+// * `text` - The text the transform came from.
+// * `transformed` - The last column of the sorted rotation matrix.
+// * `original_row` - The row the text itself stands in.
+// * `inverted` - What the last inverse gave back.
+// * `total` - The count of the inverses so far.
+_make_decode_bench : Array U8 -> Array U8 -> I64 -> Array U8 -> U32 -> Bench;
+_make_decode_bench = |text, transformed, original_row, inverted, total| Bench::make(
+    |iterations| (
+        let (inverted, total) = range(0, iterations).fold((inverted, total), |_, (_, total)|
+            let inverted = _bwt_inverse(transformed, original_row);
+            (inverted, total + inverted.@size.u32)
+        );
+        _make_decode_bench(text, transformed, original_row, inverted, total)
+    ),
+    |_| total + if inverted == text { 100000_U32 } else { 0_U32 }
+);
+
+// The encoding benchmark, as the runner's registry holds it.
+encode_entry : (String, MakeBench);
+encode_entry = (_encode_name, |config, _|
+    _make_encode_bench(_generate_text(config.config_i64(_encode_name, "size")), 0_U32)
+);
+
+// The decoding benchmark, as the runner's registry holds it.
+decode_entry : (String, MakeBench);
+decode_entry = (_decode_name, |config, _|
+    let text = _generate_text(config.config_i64(_decode_name, "size"));
+    let (transformed, original_row) = _bwt_transform(text);
+    _make_decode_bench(text, transformed, original_row, Array::empty(0), 0_U32)
+);
