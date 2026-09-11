@@ -79,19 +79,19 @@ _z : Array U8 = "z".get_bytes.get_sub(0, 1);
 // Reads the outermost object and answers with the coordinates its `coordinates` member holds.
 _document : Decoder (Array (F64, F64, F64));
 _document = (
-    let _ = *_skip_space;
-    let _ = *_expect('{', "an object");
+    _skip_space;;
+    _expect('{', "an object");;
     loop_m(Array::empty(0), |points|
-        let _ = *_skip_space;
+        _skip_space;;
         let closed = *_at('}');
-        if closed { let _ = *_step; break_m $ points };
+        if closed { _step;; break_m $ points };
         let (from, to) = *_member;
         if *_named(from, to, _coordinates) {
             let points = *_points;
             let more = *_separated('}');
             if more { continue_m $ points } else { break_m $ points }
         };
-        let _ = *_skip_value;
+        _skip_value;;
         let more = *_separated('}');
         if more { continue_m $ points } else { break_m $ points }
     )
@@ -100,10 +100,10 @@ _document = (
 // Reads the array of coordinates.
 _points : Decoder (Array (F64, F64, F64));
 _points = (
-    let _ = *_expect('[', "an array of coordinates");
-    let _ = *_skip_space;
+    _expect('[', "an array of coordinates");;
+    _skip_space;;
     let closed = *_at(']');
-    if closed { let _ = *_step; pure $ Array::empty(0) };
+    if closed { _step;; pure $ Array::empty(0) };
     loop_m(Array::empty(1024), |points|
         let point = *_point;
         let points = points.push_back(point);
@@ -115,12 +115,12 @@ _points = (
 // Reads one coordinate.
 _point : Decoder (F64, F64, F64);
 _point = (
-    let _ = *_skip_space;
-    let _ = *_expect('{', "a coordinate");
+    _skip_space;;
+    _expect('{', "a coordinate");;
     loop_m((0.0, 0.0, 0.0), |(x, y, z)|
-        let _ = *_skip_space;
+        _skip_space;;
         let closed = *_at('}');
-        if closed { let _ = *_step; break_m $ (x, y, z) };
+        if closed { _step;; break_m $ (x, y, z) };
         let (from, to) = *_member;
         let is_x = *_named(from, to, _x);
         let is_y = *_named(from, to, _y);
@@ -133,7 +133,7 @@ _point = (
             let more = *_separated('}');
             if more { continue_m $ point } else { break_m $ point }
         };
-        let _ = *_skip_value;
+        _skip_value;;
         let more = *_separated('}');
         if more { continue_m $ (x, y, z) } else { break_m $ (x, y, z) }
     )
@@ -145,11 +145,11 @@ _member : Decoder (I64, I64);
 _member = (
     let quoted = *_at('"');
     if !quoted { Decoder::expected("a member name") };
-    let _ = *_step;
+    _step;;
     let (from, to) = *_name;
-    let _ = *_skip_space;
-    let _ = *_expect(':', "`:`");
-    let _ = *_skip_space;
+    _skip_space;;
+    _expect(':', "`:`");;
+    _skip_space;;
     pure $ (from, to)
 );
 
@@ -160,11 +160,11 @@ _member = (
 // * `closing` - The byte that closes this list.
 _separated : U8 -> Decoder Bool;
 _separated = |closing| (
-    let _ = *_skip_space;
+    _skip_space;;
     let separated = *_at(',');
-    if separated { let _ = *_step; pure $ true };
+    if separated { _step;; pure $ true };
     let closed = *_at(closing);
-    if closed { let _ = *_step; pure $ false };
+    if closed { _step;; pure $ false };
     Decoder::expected("`,` or a closing byte")
 );
 
@@ -264,7 +264,7 @@ _number = Decoder { _run : |c|
 _skip_value : Decoder ();
 _skip_value = (
     let quoted = *_at('"');
-    if quoted { let _ = *_step; let _ = *_name; pure() };
+    if quoted { _step;; _name;; pure() };
     let object = *_at('{');
     let array = *_at('[');
     if object || array { _skip_nested };
@@ -293,19 +293,19 @@ _skip_plain = Decoder { _run : |c|
 _skip_nested : Decoder ();
 _skip_nested = loop_m(0, |depth|
     let quoted = *_at('"');
-    if quoted { let _ = *_step; let _ = *_name; continue_m $ depth };
+    if quoted { _step;; _name;; continue_m $ depth };
     let object = *_at('{');
     let array = *_at('[');
-    if object || array { let _ = *_step; continue_m $ depth + 1 };
+    if object || array { _step;; continue_m $ depth + 1 };
     let closed_object = *_at('}');
     let closed_array = *_at(']');
     if closed_object || closed_array {
-        let _ = *_step;
+        _step;;
         if depth == 1 { break_m $ () } else { continue_m $ depth - 1 }
     };
     let ended = *_ended;
     if ended { Decoder::expected("a closing brace or bracket") };
-    let _ = *_step;
+    _step;;
     continue_m $ depth
 );
 
