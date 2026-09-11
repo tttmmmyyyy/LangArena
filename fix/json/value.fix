@@ -1,0 +1,41 @@
+// The value a JSON document holds.
+//
+// A value is held unboxed, so an array of values holds them where they stand rather than holding a
+// pointer to each one.
+module Json.Value;
+
+import Std::{
+    Array, Bool, Eq, F64, I64, Option, String, Array::{@, @size}, LoopState::{break, continue},
+    Option::{none, some}, Tuple2::{@0, @1}, loop
+};
+
+// A JSON value.
+//
+// The members of an object stand in the order the document gives them, and a member is found by
+// scanning them, which beats a table for the few members an object carries.
+type Json = union {
+    null : (),
+    bool : Bool,
+    number : F64,
+    string : String,
+    object : Array (String, Json),
+    array : Array Json
+};
+
+namespace Json {
+    // The value the member named `name` holds, or `none` when the object carries no such member.
+    //
+    // # Parameters
+    // * `name` - The name to look for.
+    // * `members` - The members of an object.
+    find : String -> Array (String, Json) -> Option Json;
+    find = |name, members| (
+        let size = members.@size;
+        loop((0), |i|
+            if i == size { break $ none() };
+            let member = members.@(i);
+            if member.@0 == name { break $ some(member.@1) };
+            continue $ i + 1
+        )
+    );
+}

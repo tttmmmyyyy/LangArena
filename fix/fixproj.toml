@@ -6,6 +6,10 @@ version = "0.1.0"
 files = [
     "main.fix",
     "helper.fix",
+    "json/value.fix",
+    "json/number.fix",
+    "json/read.fix",
+    "json/write.fix",
     "heap.fix",
     "bench.fix",
     "benchmarks/base64.fix",
@@ -25,6 +29,8 @@ files = [
     "benchmarks/game_of_life.fix",
     "benchmarks/graph_path.fix",
     "benchmarks/json.fix",
+    "benchmarks/json_decode.fix",
+    "benchmarks/json_points.fix",
     "benchmarks/log_parser.fix",
     "benchmarks/mandelbrot.fix",
     "benchmarks/matmul.fix",
@@ -43,17 +49,6 @@ files = [
 name = "time"
 version = "2.0.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-time.git" }
-
-[[dependencies]]
-name = "minilib-json"
-version = "0.7.0"
-git = { url = "https://github.com/pt9999/fixlang-minilib-json.git" }
-
-[[dependencies]]
-name = "minilib-collection"
-version = "0.9.0"
-git = { url = "https://github.com/pt9999/fixlang-minilib-collection.git" }
-
 
 [[dependencies]]
 name = "math"

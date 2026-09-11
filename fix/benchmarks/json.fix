@@ -4,12 +4,12 @@ module LangArena.Benchmarks.Json;
 import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
 import Math::round;
-import Minilib.Collection.OrderedMap::OrderedMap::find;
-import Minilib.Encoding.Json::{to_object, Json, Json::{array, as_array, as_number, as_object, bool, number, string}};
-import Minilib.Encoding.Json.JsonDecoder::decode;
-import Minilib.Encoding.Json.JsonEncoder::{encode_with_param, EncodeParam, EncodeParam::{default, set_number_prec}};
+import Json.Read::read;
+import Json.Value::{Json, Json::{array, as_array, as_number, as_object, bool, find, number, object, string}};
+import Json.Write::write;
+import LangArena.Benchmarks.JsonDecode::read_points;
 import Std::{
-    Array, F64, I64, String, U32, Array::{empty, push_back, @, @size}, F64::to_string_precision, 
+    Array, F64, I64, String, U32, U8, Array::{empty, push_back, @, @size}, F64::to_string_precision, 
     Functor::map, Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, 
     String::find, ToF64::f64, ToString::to_string, Tuple3::{@0, @1, @2}
 };
@@ -23,8 +23,7 @@ _opening : String = "{\"coordinates\":";
 
 // The coordinates are rounded to eight decimal places, so eight places write every one of them
 // back exactly.
-_encoding : EncodeParam;
-_encoding = EncodeParam::default.set_number_prec(8_U8);
+_precision : U8 = 8_U8;
 
 // A number rounded to eight decimal places.
 //
@@ -47,18 +46,18 @@ _build = |coords, rng| (
         let (z, rng) = rng.next_float(1.0);
         let (marker, rng) = rng.next_float(1.0);
         let (tag, rng) = rng.next_int(10000);
-        let entry = Json::to_object([
+        let entry = Json::object([
             ("x", Json::number(_rounded(x))),
             ("y", Json::number(_rounded(y))),
             ("z", Json::number(_rounded(z))),
             ("name", Json::string(marker.to_string_precision(7_U8) + " " + tag.to_string)),
-            ("opts", Json::to_object([
+            ("opts", Json::object([
                 ("1", Json::array([Json::number(1.0), Json::bool(true)]))
             ]))
         ]);
         (entries.push_back(entry), rng)
     );
-    Json::to_object([
+    Json::object([
         ("coordinates", Json::array(entries)), ("info", Json::string("some info"))
     ])
 );
@@ -69,12 +68,12 @@ _build = |coords, rng| (
 // * `document` - The document to read.
 _points : Json -> Array (F64, F64, F64);
 _points = |document| (
-    document.as_object.OrderedMap::find("coordinates").as_some.as_array.map(|entry|
+    document.as_object.Json::find("coordinates").as_some.as_array.map(|entry|
         let entry = entry.as_object;
         (
-            entry.OrderedMap::find("x").as_some.as_number,
-            entry.OrderedMap::find("y").as_some.as_number,
-            entry.OrderedMap::find("z").as_some.as_number
+            entry.Json::find("x").as_some.as_number,
+            entry.Json::find("y").as_some.as_number,
+            entry.Json::find("z").as_some.as_number
         )
     )
 );
@@ -103,7 +102,7 @@ _make_generate_bench : Json -> U32 -> Bench;
 _make_generate_bench = |document, total| Bench::make(
     |iterations| (
         let total = total + range(0, iterations).map(|_|
-            let text = encode_with_param(_encoding, document);
+            let text = Json.Write::write(_precision, document);
             if text.find(_opening, 0) == some(0) { 1_U32 } else { 0_U32 }
         ).sum;
         _make_generate_bench(document, total)
@@ -132,7 +131,14 @@ _make_parse_bench = |read, text, total| Bench::make(
 // # Parameters
 // * `text` - The text to read.
 _read : String -> Array (F64, F64, F64);
-_read = |text| _points(JsonDecoder::decode(text).as_ok);
+_read = |text| _points(Json.Read::read(text).as_ok);
+
+// Reads the coordinates out of a document without building a tree for it.
+//
+// # Parameters
+// * `text` - The text to read.
+_read_points : String -> Array (F64, F64, F64);
+_read_points = |text| JsonDecode::read_points(text).as_ok;
 
 // The benchmarks, as the runner's registry holds them. Both readings go through the same tree,
 // since a document is read into a tree whichever shape the coordinates are then carried into.
@@ -144,13 +150,13 @@ generate_entry = (_generate_name, |config, rng|
 parse_dom_entry : (String, MakeBench);
 parse_dom_entry = (_parse_dom_name, |config, rng| _make_parse_bench(
     _read,
-    encode_with_param(_encoding, _build(config.config_i64(_parse_dom_name, "coords"), rng)),
+    Json.Write::write(_precision, _build(config.config_i64(_parse_dom_name, "coords"), rng)),
     0_U32
 ));
 
 parse_mapping_entry : (String, MakeBench);
 parse_mapping_entry = (_parse_mapping_name, |config, rng| _make_parse_bench(
-    _read,
-    encode_with_param(_encoding, _build(config.config_i64(_parse_mapping_name, "coords"), rng)),
+    _read_points,
+    Json.Write::write(_precision, _build(config.config_i64(_parse_mapping_name, "coords"), rng)),
     0_U32
 ));

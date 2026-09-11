@@ -2,9 +2,8 @@
 // generator whose stream is fixed across all languages, and the checksum functions.
 module LangArena.Helper;
 
-import Minilib.Collection.OrderedMap::OrderedMap::find;
-import Minilib.Encoding.Json::{Json, Json::{as_array, as_number, as_object, as_string}};
-import Minilib.Encoding.Json.JsonDecoder::decode;
+import Json.Read::read;
+import Json.Value::{Json, Json::{as_array, as_number, as_object, as_string, find}};
 import Std::{
     Array, F64, I64, Option, String, U32, U8, Array::{find_by, pop_back, push_back, to_iter, @, @size}, 
     F64::to_string_precision, FromBytes::from_bytes, Functor::map, 
@@ -114,8 +113,8 @@ type Config = struct { entries : Array (String, Json) };
 read_config : String -> IOFail Config;
 read_config = |path| (
     let text = *read_file_string(path);
-    let json = *JsonDecoder::decode(text).from_result;
-    let entries = json.as_array.map(|entry| (entry.as_object.find("name").as_some.as_string, entry));
+    let json = *Json.Read::read(text).from_result;
+    let entries = json.as_array.map(|entry| (entry.as_object.Json::find("name").as_some.as_string, entry));
     pure $ Config { entries : entries }
 );
 
@@ -146,7 +145,7 @@ _entry = |name, config| (
 // * `config` - The configuration to read.
 config_i64 : String -> String -> Config -> I64;
 config_i64 = |name, field, config| (
-    let value = config._entry(name).bind(|entry| entry.as_object.find(field));
+    let value = config._entry(name).bind(|entry| entry.as_object.Json::find(field));
     if value.is_none { 0 };
     value.as_some.as_number.i64
 );
@@ -159,7 +158,7 @@ config_i64 = |name, field, config| (
 // * `config` - The configuration to read.
 config_str : String -> String -> Config -> String;
 config_str = |name, field, config| (
-    let value = config._entry(name).bind(|entry| entry.as_object.find(field));
+    let value = config._entry(name).bind(|entry| entry.as_object.Json::find(field));
     if value.is_none { "" };
     value.as_some.as_string
 );

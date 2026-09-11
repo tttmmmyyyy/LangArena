@@ -1,0 +1,137 @@
+// Writes a JSON tree as the text of a document, appending its bytes to one buffer.
+//
+// The text carries no space between its tokens.
+module Json.Write;
+
+import Json.Number::append;
+import Json.Value::{Json, Json::{array, bool, null, number, object, string}};
+import Std::{
+    Array, Bool, I64, String, U8, Array::{empty, push_back, @, @size}, FromBytes::from_bytes,
+    LoopState::{break, continue}, Result::as_ok, String::get_bytes, ToI64::i64, Tuple2::{@0, @1},
+    loop
+};
+
+// Writes a document. Every number is written to `precision` places after the point, with the zeros
+// that trail it dropped.
+//
+// # Parameters
+// * `precision` - How many places a number is written to.
+// * `document` - The tree to write.
+write : U8 -> Json -> String;
+write = |precision, document| (
+    _value(precision, Array::empty(1024), document)._string_of
+);
+
+// A string made of the given bytes.
+//
+// # Parameters
+// * `bytes` - The bytes of the string.
+_string_of : Array U8 -> String;
+_string_of = |bytes| bytes.push_back(0_U8).from_bytes.as_ok;
+
+// Appends the bytes of `text` to `buffer`.
+//
+// # Parameters
+// * `text` - The text to append.
+// * `buffer` - The buffer to append to.
+_append : String -> Array U8 -> Array U8;
+_append = |text, buffer| (
+    // `get_bytes` answers with the string's own array, which the string keeps holding, so dropping
+    // its null terminator would copy the whole of it. The terminator is left in place and the
+    // length stops one short of it.
+    let bytes = text.get_bytes;
+    let size = bytes.@size - 1;
+    loop((buffer, 0), |(buffer, i)|
+        if i == size { break $ buffer };
+        continue $ (buffer.push_back(bytes.@(i)), i + 1)
+    )
+);
+
+// Appends the text of `value` to `buffer`.
+//
+// # Parameters
+// * `precision` - How many places a number is written to.
+// * `buffer` - The buffer to append to.
+// * `value` - The value to write.
+_value : U8 -> Array U8 -> Json -> Array U8;
+_value = |precision, buffer, value| (
+    match value {
+        null() => buffer._append("null"),
+        bool(yes) => if yes { buffer._append("true") } else { buffer._append("false") },
+        number(x) => Json.Number::append(precision, buffer, x),
+        string(text) => _string(buffer, text),
+        object(members) => _object(precision, buffer, members),
+        array(elements) => _array(precision, buffer, elements)
+    }
+);
+
+// Appends the members of an object to `buffer`, in the order they stand in.
+//
+// # Parameters
+// * `precision` - How many places a number is written to.
+// * `buffer` - The buffer to append to.
+// * `members` - The members to write.
+_object : U8 -> Array U8 -> Array (String, Json) -> Array U8;
+_object = |precision, buffer, members| (
+    let size = members.@size;
+    let buffer = buffer.push_back('{');
+    let buffer = loop((buffer, 0), |(buffer, i)|
+        if i == size { break $ buffer };
+        let member = members.@(i);
+        let buffer = if i == 0 { buffer } else { buffer.push_back(',') };
+        let buffer = _string(buffer, member.@0).push_back(':');
+        continue $ (_value(precision, buffer, member.@1), i + 1)
+    );
+    buffer.push_back('}')
+);
+
+// Appends the elements of an array to `buffer`.
+//
+// # Parameters
+// * `precision` - How many places a number is written to.
+// * `buffer` - The buffer to append to.
+// * `elements` - The elements to write.
+_array : U8 -> Array U8 -> Array Json -> Array U8;
+_array = |precision, buffer, elements| (
+    let size = elements.@size;
+    let buffer = buffer.push_back('[');
+    let buffer = loop((buffer, 0), |(buffer, i)|
+        if i == size { break $ buffer };
+        let buffer = if i == 0 { buffer } else { buffer.push_back(',') };
+        continue $ (_value(precision, buffer, elements.@(i)), i + 1)
+    );
+    buffer.push_back(']')
+);
+
+// Appends a string to `buffer`, in quotes, with the bytes JSON spells with an escape escaped.
+//
+// # Parameters
+// * `buffer` - The buffer to append to.
+// * `text` - The text to write.
+_string : Array U8 -> String -> Array U8;
+_string = |buffer, text| (
+    let bytes = text.get_bytes;
+    let size = bytes.@size - 1;
+    let buffer = buffer.push_back('"');
+    let buffer = loop((buffer, 0), |(buffer, i)|
+        if i == size { break $ buffer };
+        let c = bytes.@(i);
+        if c == '"' { continue $ (buffer.push_back('\\').push_back('"'), i + 1) };
+        if c == '\\' { continue $ (buffer.push_back('\\').push_back('\\'), i + 1) };
+        if c >= ' ' { continue $ (buffer.push_back(c), i + 1) };
+        if c == 8_U8 { continue $ (buffer._append("\\b"), i + 1) };
+        if c == 12_U8 { continue $ (buffer._append("\\f"), i + 1) };
+        if c == '\n' { continue $ (buffer._append("\\n"), i + 1) };
+        if c == '\r' { continue $ (buffer._append("\\r"), i + 1) };
+        if c == '\t' { continue $ (buffer._append("\\t"), i + 1) };
+        let buffer = buffer._append("\\u00")
+            .push_back(_hex_digits.@(c.i64 / 16))
+            .push_back(_hex_digits.@(c.i64 % 16));
+        continue $ (buffer, i + 1)
+    );
+    buffer.push_back('"')
+);
+
+// The letters a hexadecimal digit is written with.
+_hex_digits : Array U8;
+_hex_digits = "0123456789abcdef".get_bytes;

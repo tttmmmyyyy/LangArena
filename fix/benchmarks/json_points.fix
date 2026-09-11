@@ -1,0 +1,285 @@
+// Reads the coordinates out of a JSON document, taking the three numbers each of them holds and
+// nothing else.
+//
+// The document is walked with an index, as `LangArena.Benchmarks.JsonRead` walks it, and every
+// part the coordinates do not need is walked past without a value being built for it: a member
+// whose name is not one of the three, and everything outside the array of coordinates.
+module LangArena.Benchmarks.JsonPoints;
+
+import Json.Number::parse;
+import Std::{
+    Array, Bool, ErrMsg, F64, I64, Result, String, U8,
+    Array::{empty, get_sub, push_back, @, @size}, LoopState::{break, continue},
+    Result::{as_err, as_ok, err, is_err, ok}, String::get_bytes, ToString::to_string, loop
+};
+
+// The name of the member holding the coordinates.
+_coordinates : Array U8 = "coordinates".get_bytes.get_sub(0, 11);
+
+// The names of the three numbers a coordinate holds, in the order this reader keeps them.
+_x : Array U8 = "x".get_bytes.get_sub(0, 1);
+_y : Array U8 = "y".get_bytes.get_sub(0, 1);
+_z : Array U8 = "z".get_bytes.get_sub(0, 1);
+
+// Reads a document and answers with the three numbers of each of its coordinates.
+//
+// # Parameters
+// * `text` - The document to read.
+read_points : String -> Result ErrMsg (Array (F64, F64, F64));
+read_points = |text| (
+    // `get_bytes` answers with the string's own array, which the string keeps holding, so
+    // dropping its null terminator would copy the whole of it. The terminator is left in place
+    // and the length stops one short of it.
+    let bytes = text.get_bytes;
+    let size = bytes.@size - 1;
+    let at = _skip_space(bytes, size, 0);
+    if at >= size || bytes.@(at) != '{' { _expected("an object", at) };
+    _members(bytes, size, at + 1)
+);
+
+// The error a document that holds something else where the grammar expected `what`.
+//
+// # Parameters
+// * `what` - What the grammar expected there.
+// * `at` - Where it expected it.
+_expected : String -> I64 -> Result ErrMsg a;
+_expected = |what, at| err $ "expected " + what + " at " + at.to_string;
+
+// The position of the first byte at or after `at` that is not white space.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position to start from.
+_skip_space : Array U8 -> I64 -> I64 -> I64;
+_skip_space = |bytes, size, at| (
+    loop((at), |at|
+        if at >= size { break $ at };
+        let c = bytes.@(at);
+        if c == ' ' || c == '\t' || c == '\n' || c == '\r' { continue $ at + 1 };
+        break $ at
+    )
+);
+
+// Reads the members of the document's outermost object, whose `{` sits before `at`, and answers
+// with the coordinates the member named `coordinates` holds.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position after the opening brace.
+_members : Array U8 -> I64 -> I64 -> Result ErrMsg (Array (F64, F64, F64));
+_members = |bytes, size, at| (
+    loop((Array::empty(0), at), |(points, at)|
+        let at = _skip_space(bytes, size, at);
+        if at < size && bytes.@(at) == '}' { break $ ok $ points };
+        if at >= size || bytes.@(at) != '"' { break $ _expected("a member name", at) };
+        let name = _name(bytes, size, at + 1);
+        if name.is_err { break $ err $ name.as_err };
+        let (from, to, at) = name.as_ok;
+        let at = _skip_space(bytes, size, at);
+        if at >= size || bytes.@(at) != ':' { break $ _expected("`:`", at) };
+        let at = _skip_space(bytes, size, at + 1);
+        let read = if _names(bytes, from, to, _coordinates) {
+            _points(bytes, size, at)
+        } else {
+            let at = _skip_value(bytes, size, at);
+            if at.is_err { err $ at.as_err };
+            ok $ (points, at.as_ok)
+        };
+        if read.is_err { break $ err $ read.as_err };
+        let (points, at) = read.as_ok;
+        let at = _skip_space(bytes, size, at);
+        if at >= size { break $ _expected("`,` or `}`", at) };
+        let c = bytes.@(at);
+        if c == ',' { continue $ (points, at + 1) };
+        if c == '}' { break $ ok $ points };
+        break $ _expected("`,` or `}`", at)
+    )
+);
+
+// Whether the bytes of `bytes` from `from` to `to` are the bytes of `name`.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `from` - The position of the first byte of the name read from the document.
+// * `to` - The position after its last byte.
+// * `name` - The name to compare it against.
+_names : Array U8 -> I64 -> I64 -> Array U8 -> Bool;
+_names = |bytes, from, to, name| (
+    if to - from != name.@size { false };
+    loop((0), |i|
+        if i == name.@size { break $ true };
+        if bytes.@(from + i) != name.@(i) { break $ false };
+        continue $ i + 1
+    )
+);
+
+// Reads a member's name, whose opening quote sits before `at`, and answers with where its bytes
+// begin, where they end, and the position after its closing quote.
+//
+// A name carrying an escape is answered with the range it occupies in the document, escapes and
+// all. The names this reader compares against carry none, so such a name matches nothing, which
+// is the answer a name that spells one of them through an escape would want as well.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position after the opening quote.
+_name : Array U8 -> I64 -> I64 -> Result ErrMsg (I64, I64, I64);
+_name = |bytes, size, at| (
+    loop((at), |i|
+        if i >= size { break $ _expected("a closing quote", i) };
+        let c = bytes.@(i);
+        if c == '"' { break $ ok $ (at, i, i + 1) };
+        if c == '\\' { continue $ i + 2 };
+        continue $ i + 1
+    )
+);
+
+// Reads the array of coordinates and answers with the three numbers of each.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position of the array's opening bracket.
+_points : Array U8 -> I64 -> I64 -> Result ErrMsg (Array (F64, F64, F64), I64);
+_points = |bytes, size, at| (
+    if at >= size || bytes.@(at) != '[' { _expected("an array of coordinates", at) };
+    let at = _skip_space(bytes, size, at + 1);
+    if at < size && bytes.@(at) == ']' { ok $ (Array::empty(0), at + 1) };
+    loop((Array::empty(1024), at), |(points, at)|
+        let point = _point(bytes, size, at);
+        if point.is_err { break $ err $ point.as_err };
+        let (point, at) = point.as_ok;
+        let points = points.push_back(point);
+        let at = _skip_space(bytes, size, at);
+        if at >= size { break $ _expected("`,` or `]`", at) };
+        let c = bytes.@(at);
+        if c == ',' { continue $ (points, _skip_space(bytes, size, at + 1)) };
+        if c == ']' { break $ ok $ (points, at + 1) };
+        break $ _expected("`,` or `]`", at)
+    )
+);
+
+// Reads one coordinate and answers with the three numbers it holds.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position of the coordinate's opening brace.
+_point : Array U8 -> I64 -> I64 -> Result ErrMsg ((F64, F64, F64), I64);
+_point = |bytes, size, at| (
+    if at >= size || bytes.@(at) != '{' { _expected("a coordinate", at) };
+    loop(((0.0, 0.0, 0.0), at + 1), |((x, y, z), at)|
+        let at = _skip_space(bytes, size, at);
+        if at < size && bytes.@(at) == '}' { break $ ok $ ((x, y, z), at + 1) };
+        if at >= size || bytes.@(at) != '"' { break $ _expected("a member name", at) };
+        let name = _name(bytes, size, at + 1);
+        if name.is_err { break $ err $ name.as_err };
+        let (from, to, at) = name.as_ok;
+        let at = _skip_space(bytes, size, at);
+        if at >= size || bytes.@(at) != ':' { break $ _expected("`:`", at) };
+        let at = _skip_space(bytes, size, at + 1);
+        let read = if _names(bytes, from, to, _x) || _names(bytes, from, to, _y)
+                      || _names(bytes, from, to, _z) {
+            let number = _number(bytes, size, at);
+            if number.is_err { err $ number.as_err };
+            let (value, at) = number.as_ok;
+            if _names(bytes, from, to, _x) { ok $ ((value, y, z), at) };
+            if _names(bytes, from, to, _y) { ok $ ((x, value, z), at) };
+            ok $ ((x, y, value), at)
+        } else {
+            let at = _skip_value(bytes, size, at);
+            if at.is_err { err $ at.as_err };
+            ok $ ((x, y, z), at.as_ok)
+        };
+        if read.is_err { break $ err $ read.as_err };
+        let ((x, y, z), at) = read.as_ok;
+        let at = _skip_space(bytes, size, at);
+        if at >= size { break $ _expected("`,` or `}`", at) };
+        let c = bytes.@(at);
+        if c == ',' { continue $ ((x, y, z), at + 1) };
+        if c == '}' { break $ ok $ ((x, y, z), at + 1) };
+        break $ _expected("`,` or `}`", at)
+    )
+);
+
+// Reads a number, which runs to the first byte that no number can carry.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position of the number's first byte.
+_number : Array U8 -> I64 -> I64 -> Result ErrMsg (F64, I64);
+_number = |bytes, size, at| (
+    let end = loop((at), |i|
+        if i >= size { break $ i };
+        let c = bytes.@(i);
+        let carries = ('0' <= c && c <= '9') || c == '-' || c == '+' || c == '.'
+            || c == 'e' || c == 'E';
+        if carries { continue $ i + 1 };
+        break $ i
+    );
+    if end == at { _expected("a number", at) };
+    let value = *Json.Number::parse(bytes, at, end);
+    ok $ (value, end)
+);
+
+// The position after the value beginning at `at`, which is walked past without a value being
+// built for it.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position of the value's first byte.
+_skip_value : Array U8 -> I64 -> I64 -> Result ErrMsg I64;
+_skip_value = |bytes, size, at| (
+    if at >= size { _expected("a value", at) };
+    let c = bytes.@(at);
+    if c == '"' {
+        let name = _name(bytes, size, at + 1);
+        if name.is_err { err $ name.as_err };
+        let (_, _, at) = name.as_ok;
+        ok $ at
+    };
+    if c == '{' || c == '[' { _skip_nested(bytes, size, at) };
+    // A number, `true`, `false` or `null` runs to the first byte that closes or separates it.
+    let end = loop((at), |i|
+        if i >= size { break $ i };
+        let c = bytes.@(i);
+        if c == ',' || c == '}' || c == ']' || c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+            break $ i
+        };
+        continue $ i + 1
+    );
+    if end == at { _expected("a value", at) };
+    ok $ end
+);
+
+// The position after the object or array beginning at `at`, found by counting the braces and
+// brackets that open and close inside it.
+//
+// # Parameters
+// * `bytes` - The document's bytes.
+// * `size` - How many of them the document holds.
+// * `at` - The position of the opening brace or bracket.
+_skip_nested : Array U8 -> I64 -> I64 -> Result ErrMsg I64;
+_skip_nested = |bytes, size, at| (
+    loop((at, 0), |(i, depth)|
+        if i >= size { break $ _expected("a closing brace or bracket", i) };
+        let c = bytes.@(i);
+        if c == '"' {
+            let name = _name(bytes, size, i + 1);
+            if name.is_err { break $ err $ name.as_err };
+            let (_, _, i) = name.as_ok;
+            continue $ (i, depth)
+        };
+        if c == '{' || c == '[' { continue $ (i + 1, depth + 1) };
+        if c == '}' || c == ']' {
+            if depth == 1 { break $ ok $ i + 1 };
+            continue $ (i + 1, depth - 1)
+        };
+        continue $ (i + 1, depth)
+    )
+);
