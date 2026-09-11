@@ -1,3 +1,4 @@
 target/
 .fixlang/
 fixdeps.lock
+fixdeps.test.lock
