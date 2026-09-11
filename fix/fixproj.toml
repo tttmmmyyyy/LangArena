@@ -6,10 +6,8 @@ version = "0.1.0"
 files = [
     "main.fix",
     "helper.fix",
-    "json/value.fix",
-    "json/number.fix",
-    "json/read.fix",
-    "json/write.fix",
+    "json.fix",
+    "json/decode.fix",
     "heap.fix",
     "bench.fix",
     "benchmarks/base64.fix",

@@ -6,11 +6,11 @@
 // whose name is not one of the three, and everything outside the array of coordinates.
 module LangArena.Benchmarks.JsonPoints;
 
-import Json.Number::parse;
+import Json::Number::parse;
 import Std::{
-    Array, Bool, ErrMsg, F64, I64, Result, String, U8,
-    Array::{empty, get_sub, push_back, @, @size}, LoopState::{break, continue},
-    Result::{as_err, as_ok, err, is_err, ok}, String::get_bytes, ToString::to_string, loop
+    loop, Array, Bool, ErrMsg, F64, I64, Result, String, U8, 
+    Array::{@, @size, empty, get_sub, push_back}, LoopState::{break, continue}, 
+    Result::{as_err, as_ok, err, is_err, ok}, String::get_bytes, ToString::to_string
 };
 
 // The name of the member holding the coordinates.
@@ -222,7 +222,7 @@ _number = |bytes, size, at| (
         break $ i
     );
     if end == at { _expected("a number", at) };
-    let value = *Json.Number::parse(bytes, at, end);
+    let value = *Number::parse(bytes, at, end);
     ok $ (value, end)
 );
 

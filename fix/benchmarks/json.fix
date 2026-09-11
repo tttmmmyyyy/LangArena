@@ -1,15 +1,13 @@
 // Writes a document of coordinates as JSON, and reads the coordinates back out of it.
 module LangArena.Benchmarks.Json;
 
+import Json::{read, write, Json, Json::{array, as_array, as_number, as_object, bool, find, number, object, string}};
 import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Benchmarks.JsonDecode::read_points;
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
 import Math::round;
-import Json.Read::read;
-import Json.Value::{Json, Json::{array, as_array, as_number, as_object, bool, find, number, object, string}};
-import Json.Write::write;
-import LangArena.Benchmarks.JsonDecode::read_points;
 import Std::{
-    Array, F64, I64, String, U32, U8, Array::{empty, push_back, @, @size}, F64::to_string_precision, 
+    Array, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back}, F64::to_string_precision, 
     Functor::map, Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, 
     String::find, ToF64::f64, ToString::to_string, Tuple3::{@0, @1, @2}
 };
@@ -102,7 +100,7 @@ _make_generate_bench : Json -> U32 -> Bench;
 _make_generate_bench = |document, total| Bench::make(
     |iterations| (
         let total = total + range(0, iterations).map(|_|
-            let text = Json.Write::write(_precision, document);
+            let text = Json::write(_precision, document);
             if text.find(_opening, 0) == some(0) { 1_U32 } else { 0_U32 }
         ).sum;
         _make_generate_bench(document, total)
@@ -131,7 +129,7 @@ _make_parse_bench = |read, text, total| Bench::make(
 // # Parameters
 // * `text` - The text to read.
 _read : String -> Array (F64, F64, F64);
-_read = |text| _points(Json.Read::read(text).as_ok);
+_read = |text| _points(Json::read(text).as_ok);
 
 // Reads the coordinates out of a document without building a tree for it.
 //
@@ -150,13 +148,13 @@ generate_entry = (_generate_name, |config, rng|
 parse_dom_entry : (String, MakeBench);
 parse_dom_entry = (_parse_dom_name, |config, rng| _make_parse_bench(
     _read,
-    Json.Write::write(_precision, _build(config.config_i64(_parse_dom_name, "coords"), rng)),
+    Json::write(_precision, _build(config.config_i64(_parse_dom_name, "coords"), rng)),
     0_U32
 ));
 
 parse_mapping_entry : (String, MakeBench);
 parse_mapping_entry = (_parse_mapping_name, |config, rng| _make_parse_bench(
     _read_points,
-    Json.Write::write(_precision, _build(config.config_i64(_parse_mapping_name, "coords"), rng)),
+    Json::write(_precision, _build(config.config_i64(_parse_mapping_name, "coords"), rng)),
     0_U32
 ));

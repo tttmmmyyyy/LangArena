@@ -2,10 +2,9 @@
 // generator whose stream is fixed across all languages, and the checksum functions.
 module LangArena.Helper;
 
-import Json.Read::read;
-import Json.Value::{Json, Json::{as_array, as_number, as_object, as_string, find}};
+import Json::{read, Json, Json::{as_array, as_number, as_object, as_string, find}};
 import Std::{
-    Array, F64, I64, Option, String, U32, U8, Array::{find_by, pop_back, push_back, to_iter, @, @size}, 
+    Array, F64, I64, Option, String, U32, U8, Array::{@, @size, find_by, pop_back, push_back, to_iter}, 
     F64::to_string_precision, FromBytes::from_bytes, Functor::map, 
     IO::{read_file_string, IOFail, IOFail::from_result}, Iterator::{fold, range}, Monad::{bind, pure}, 
     Option::{as_some, is_none}, Result::as_ok, String::get_bytes, ToF64::f64, ToI64::i64, ToU32::u32, 
@@ -113,7 +112,7 @@ type Config = struct { entries : Array (String, Json) };
 read_config : String -> IOFail Config;
 read_config = |path| (
     let text = *read_file_string(path);
-    let json = *Json.Read::read(text).from_result;
+    let json = *Json::read(text).from_result;
     let entries = json.as_array.map(|entry| (entry.as_object.Json::find("name").as_some.as_string, entry));
     pure $ Config { entries : entries }
 );
