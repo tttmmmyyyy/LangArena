@@ -1,7 +1,7 @@
 // Writes a document of coordinates as JSON, and reads the coordinates back out of it.
 module LangArena.Benchmarks.Json;
 
-import Json::{read, write, Json, Json::{array, as_array, as_number, as_object, bool, find, number, object, string}};
+import Json::{read, write, Json, Json::{array, as_array, as_number, as_object, bool, number, object, string}, Object::find};
 import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Benchmarks.JsonDecode::read_points;
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
@@ -66,12 +66,12 @@ _build = |coords, rng| (
 // * `document` - The document to read.
 _points : Json -> Array (F64, F64, F64);
 _points = |document| (
-    document.as_object.Json::find("coordinates").as_some.as_array.map(|entry|
+    document.as_object.find("coordinates").as_some.as_array.map(|entry|
         let entry = entry.as_object;
         (
-            entry.Json::find("x").as_some.as_number,
-            entry.Json::find("y").as_some.as_number,
-            entry.Json::find("z").as_some.as_number
+            entry.find("x").as_some.as_number,
+            entry.find("y").as_some.as_number,
+            entry.find("z").as_some.as_number
         )
     )
 );

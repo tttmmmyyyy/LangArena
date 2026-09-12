@@ -7,11 +7,10 @@ module LangArena.Benchmarks.JsonDecode;
 
 import Json.Decode::{
     Decoder, 
-    Decoder::{decode, enter_array, enter_object, is_named_as_written, read_member, read_number, read_separator, skip_space, skip_value, took}
+    Decoder::{decode, is_named_as_written, read_array, read_number, read_object}
 };
 import Std::{
-    loop_m, Array, ErrMsg, F64, Result, String, U8, Array::{@size, empty, push_back}, 
-    LoopState::{break_m, continue_m}, Monad::pure, Result::ok, String::get_bytes
+    Array, ErrMsg, F64, Result, String, Array::{empty, push_back}, Monad::pure
 };
 
 // Reads a document and answers with the three numbers of each of its coordinates.
@@ -31,63 +30,23 @@ _z : String = "z";
 
 // Reads the outermost object and answers with the coordinates its `coordinates` member holds.
 _document : Decoder (Array (F64, F64, F64));
-_document = (
-    skip_space;;
-    enter_object;;
-    loop_m(Array::empty(0), |points|
-        skip_space;;
-        let closed = *took('}');
-        if closed { break_m $ points };
-        let span = *read_member;
-        if *is_named_as_written(span, _coordinates) {
-            let points = *_points;
-            let more = *read_separator('}');
-            if more { continue_m $ points } else { break_m $ points }
-        };
-        skip_value;;
-        let more = *read_separator('}');
-        if more { continue_m $ points } else { break_m $ points }
-    )
+_document = read_object([], |name, points|
+    if *is_named_as_written(name, _coordinates) { _points };
+    pure $ points
 );
 
 // Reads the array of coordinates.
 _points : Decoder (Array (F64, F64, F64));
-_points = (
-    enter_array;;
-    skip_space;;
-    let closed = *took(']');
-    if closed { pure $ Array::empty(0) };
-    loop_m(Array::empty(1024), |points|
-        let point = *_point;
-        let points = points.push_back(point);
-        let more = *read_separator(']');
-        if more { continue_m $ points } else { break_m $ points }
-    )
+_points = read_array(Array::empty(1024), |points|
+    let point = *_point;
+    pure $ points.push_back(point)
 );
 
 // Reads one coordinate.
 _point : Decoder (F64, F64, F64);
-_point = (
-    skip_space;;
-    enter_object;;
-    loop_m((0.0, 0.0, 0.0), |(x, y, z)|
-        skip_space;;
-        let closed = *took('}');
-        if closed { break_m $ (x, y, z) };
-        let span = *read_member;
-        let is_x = *is_named_as_written(span, _x);
-        let is_y = *is_named_as_written(span, _y);
-        let is_z = *is_named_as_written(span, _z);
-        if is_x || is_y || is_z {
-            let value = *read_number;
-            let point = if is_x { (value, y, z) } else if is_y { (x, value, z) } else {
-                (x, y, value)
-            };
-            let more = *read_separator('}');
-            if more { continue_m $ point } else { break_m $ point }
-        };
-        skip_value;;
-        let more = *read_separator('}');
-        if more { continue_m $ (x, y, z) } else { break_m $ (x, y, z) }
-    )
+_point = read_object((0.0, 0.0, 0.0), |name, (x, y, z)|
+    if *is_named_as_written(name, _x) { let v = *read_number; pure $ (v, y, z) };
+    if *is_named_as_written(name, _y) { let v = *read_number; pure $ (x, v, z) };
+    if *is_named_as_written(name, _z) { let v = *read_number; pure $ (x, y, v) };
+    pure $ (x, y, z)
 );
