@@ -7,7 +7,7 @@ module LangArena.Benchmarks.JsonDecode;
 
 import Json.Decode::{
     Decoder, 
-    Decoder::{at, decode, expect, member, name_bytes, named_as_written, number, separated, skip_space, skip_value, step}
+    Decoder::{decode, enter_array, enter_object, is_named_as_written, read_member, read_number, read_separator, skip_space, skip_value, took}
 };
 import Std::{
     loop_m, Array, ErrMsg, F64, Result, String, U8, Array::{@size, empty, push_back}, 
@@ -22,30 +22,30 @@ read_points : String -> Result ErrMsg (Array (F64, F64, F64));
 read_points = |text| _document.decode(text);
 
 // The name of the member holding the coordinates.
-_coordinates : Array U8 = name_bytes("coordinates");
+_coordinates : String = "coordinates";
 
 // The names of the three numbers a coordinate holds, in the order this reading keeps them.
-_x : Array U8 = name_bytes("x");
-_y : Array U8 = name_bytes("y");
-_z : Array U8 = name_bytes("z");
+_x : String = "x";
+_y : String = "y";
+_z : String = "z";
 
 // Reads the outermost object and answers with the coordinates its `coordinates` member holds.
 _document : Decoder (Array (F64, F64, F64));
 _document = (
     skip_space;;
-    expect('{', "an object");;
+    enter_object;;
     loop_m(Array::empty(0), |points|
         skip_space;;
-        let closed = *at('}');
-        if closed { step;; break_m $ points };
-        let span = *member;
-        if *named_as_written(span, _coordinates) {
+        let closed = *took('}');
+        if closed { break_m $ points };
+        let span = *read_member;
+        if *is_named_as_written(span, _coordinates) {
             let points = *_points;
-            let more = *separated('}');
+            let more = *read_separator('}');
             if more { continue_m $ points } else { break_m $ points }
         };
         skip_value;;
-        let more = *separated('}');
+        let more = *read_separator('}');
         if more { continue_m $ points } else { break_m $ points }
     )
 );
@@ -53,14 +53,14 @@ _document = (
 // Reads the array of coordinates.
 _points : Decoder (Array (F64, F64, F64));
 _points = (
-    expect('[', "an array of coordinates");;
+    enter_array;;
     skip_space;;
-    let closed = *at(']');
-    if closed { step;; pure $ Array::empty(0) };
+    let closed = *took(']');
+    if closed { pure $ Array::empty(0) };
     loop_m(Array::empty(1024), |points|
         let point = *_point;
         let points = points.push_back(point);
-        let more = *separated(']');
+        let more = *read_separator(']');
         if more { continue_m $ points } else { break_m $ points }
     )
 );
@@ -69,25 +69,25 @@ _points = (
 _point : Decoder (F64, F64, F64);
 _point = (
     skip_space;;
-    expect('{', "a coordinate");;
+    enter_object;;
     loop_m((0.0, 0.0, 0.0), |(x, y, z)|
         skip_space;;
-        let closed = *at('}');
-        if closed { step;; break_m $ (x, y, z) };
-        let span = *member;
-        let is_x = *named_as_written(span, _x);
-        let is_y = *named_as_written(span, _y);
-        let is_z = *named_as_written(span, _z);
+        let closed = *took('}');
+        if closed { break_m $ (x, y, z) };
+        let span = *read_member;
+        let is_x = *is_named_as_written(span, _x);
+        let is_y = *is_named_as_written(span, _y);
+        let is_z = *is_named_as_written(span, _z);
         if is_x || is_y || is_z {
-            let value = *number;
+            let value = *read_number;
             let point = if is_x { (value, y, z) } else if is_y { (x, value, z) } else {
                 (x, y, value)
             };
-            let more = *separated('}');
+            let more = *read_separator('}');
             if more { continue_m $ point } else { break_m $ point }
         };
         skip_value;;
-        let more = *separated('}');
+        let more = *read_separator('}');
         if more { continue_m $ (x, y, z) } else { break_m $ (x, y, z) }
     )
 );
