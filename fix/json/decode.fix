@@ -1,29 +1,79 @@
-// Reads a JSON document by carrying the position through a monad.
+// Reads what you want out of a JSON document and leaves the rest of it unread.
 //
-// A `Decoder` takes a cursor into the document and answers with what it read and the cursor after
-// it, so readings are composed by `bind`. The primitives below are the grammar's own pieces; a
-// reading built from them walks the document once and never goes back, which is what a JSON
-// document allows: the byte the cursor stands on says what comes next.
+// A `Decoder a` reads an `a` from where the cursor stands and leaves the cursor behind what it
+// read. Build one out of the primitives below, chain them with `*` and `;;`, and run it over a
+// document with `decode`.
 //
-// The text of a string is answered as where its bytes begin and end, so that reading a member's
-// name costs no allocation.
+// ```
+// // The number the member `x` of the object at the cursor holds.
+// _x : Decoder F64;
+// _x = (
+//     expect('{', "an object");;
+//     let span = *member;
+//     let is_x = *named(span, name_bytes("x"));
+//     if !is_x { Decoder::expected("the member x") };
+//     number
+// );
+//
+// let value = *_x.decode("{\"x\": 1.5}");   // ok(1.5)
+// ```
+//
+// Three things a reading has to live with.
+//
+// It never goes back. A reading looks at the byte the cursor stands on, decides, and moves on, so
+// a grammar that tries one thing and falls back to another cannot be written with these.
+//
+// A string comes back as a `Span`, where its bytes stand in the document. `named` and `text`
+// resolve the escapes among them; the bytes themselves are the ones the document holds, so an
+// escape such as `\n` or `\u0041` still stands there as the escape.
+//
+// A reading that fails answers with a message naming what the grammar expected and where it stood.
 module Json.Decode;
 
-import Json::Number::parse;
+import Json::{Number::parse, Text::unescape};
 import Std::{
     loop, loop_m, Array, Bool, ErrMsg, F64, Functor, I64, Monad, Result, String, U8, Array::{@, @size}, 
     LoopState::{break, break_m, continue, continue_m}, Monad::pure, Result::{err, ok}, 
+    Array::pop_back, String::get_bytes, 
     ToString::to_string
 };
 
 // A document and how far into it a reading has come.
 type Cursor = unbox struct { bytes : Array U8, size : I64, at : I64 };
 
+namespace Cursor {
+    // A cursor standing at the first byte of a document.
+    //
+    // # Parameters
+    // * `text` - The document to read.
+    make : String -> Cursor;
+    make = |text| (
+        // `get_bytes` answers with the string's own array, whose last byte is the null terminator
+        // the string keeps behind its text; the document ends one byte short of it.
+        let bytes = text.get_bytes;
+        Cursor { bytes : bytes, size : bytes.@size - 1, at : 0 }
+    );
+}
+
+// Where the text of a string stands in a document, and whether an escape stands among its bytes.
+type Span = unbox struct { from : I64, to : I64, escaped : Bool };
+
 // A reading that takes a value out of a document and leaves the position after it.
 type Decoder a = unbox struct { _run : Cursor -> Result ErrMsg (a, Cursor) };
 
 namespace Decoder {
-    // Runs a reading over a cursor.
+    // Runs a reading over a whole document, and answers with what it read.
+    //
+    // # Parameters
+    // * `text` - The document to read.
+    // * `decoder` - The reading to run.
+    decode : String -> Decoder a -> Result ErrMsg a;
+    decode = |text, decoder| (
+        let (value, _) = *decoder.run(Cursor::make(text));
+        ok $ value
+    );
+
+    // Runs a reading over a cursor, and answers with what it read and the cursor behind it.
     //
     // # Parameters
     // * `cursor` - Where the reading begins.
@@ -38,18 +88,17 @@ namespace Decoder {
     expected : String -> Decoder a;
     expected = |what| Decoder { _run : |c| err $ "expected " + what + " at " + c.@at.to_string };
 
-    // Reads a member's name and the colon behind it, and answers with where the name's bytes begin
-    // and where they end.
-    member : Decoder (I64, I64);
+    // Reads a member's name and the colon behind it, and answers with where the name stands.
+    member : Decoder Span;
     member = (
         let quoted = *at('"');
         if !quoted { Decoder::expected("a member name") };
         step;;
-        let (from, to) = *text_span;
+        let span = *text_span;
         skip_space;;
         expect(':', "`:`");;
         skip_space;;
-        pure $ (from, to)
+        pure $ span
     );
 
     // Reads the byte that closes a member list or separates it from the next member, and answers
@@ -107,42 +156,90 @@ namespace Decoder {
     };
 
     // Reads the rest of a string whose opening quote the cursor has passed, and answers with where
-    // its bytes begin and where they end.
-    text_span : Decoder (I64, I64);
+    // its text stands.
+    //
+    // The walk to the closing quote sees every escape on its way, so the span it answers with says
+    // whether one stands inside it.
+    text_span : Decoder Span;
     text_span = Decoder { _run : |c|
         let size = c.@size;
         let bytes = c.@bytes;
         let from = c.@at;
-        loop((from), |i|
+        loop((from, false), |(i, escaped)|
             if i >= size { break $ err $ "expected a closing quote at " + i.to_string };
             let byte = bytes.@(i);
-            if byte == '"' { break $ ok $ ((from, i), c.set_at(i + 1)) };
-            if byte == '\\' { continue $ i + 2 };
-            continue $ i + 1
+            if byte == '"' {
+                break $ ok $ (Span { from : from, to : i, escaped : escaped }, c.set_at(i + 1))
+            };
+            if byte == '\\' { continue $ (i + 2, true) };
+            continue $ (i + 1, escaped)
         )
     };
 
-    // Whether the bytes from `from` to `to` are the bytes of `name`.
-    //
-    // The name is given as its bytes, which a caller holds once, so that a comparison stands on
-    // the document's bytes at both ends and allocates nothing.
+    // The text the span stands for, with every escape resolved.
     //
     // # Parameters
-    // * `from` - The position of the first byte of the name read from the document.
-    // * `to` - The position after its last byte.
+    // * `span` - Where the text stands.
+    text : Span -> Decoder String;
+    text = |span| Decoder { _run : |c|
+        let value = *Text::unescape(c.@bytes, span.@from, span.@to);
+        ok $ (value, c)
+    };
+
+    // The bytes of a name, which a caller holds once and compares against many members.
+    //
+    // # Parameters
+    // * `name` - The name to take the bytes of.
+    name_bytes : String -> Array U8;
+    name_bytes = |name| name.get_bytes.pop_back;
+
+    // Whether the text of `span` is `name`.
+    //
+    // The bytes come from `name_bytes`, held once by the caller. A span that carries an escape has
+    // it resolved first, so a name written `"\\u0078"` answers to the bytes of `"x"`.
+    //
+    // # Parameters
+    // * `span` - Where the name read from the document stands.
     // * `name` - The bytes of the name to compare it against.
-    named : I64 -> I64 -> Array U8 -> Decoder Bool;
-    named = |from, to, name| Decoder { _run : |c|
-        let size = name.@size;
-        if to - from != size { ok $ (false, c) };
+    named : Span -> Array U8 -> Decoder Bool;
+    named = |span, name| (
+        if span.@escaped { Decoder { _run : |c| _named_escaped(span, name, c) } };
+        named_as_written(span, name)
+    );
+
+    // Whether the bytes `span` stands on are `name`, taken as the document writes them.
+    //
+    // An escape among them stands as the escape, so a name written `"\\u0078"` does not answer to
+    // the bytes of `"x"`. Use this where the document is known to write its names plainly.
+    //
+    // # Parameters
+    // * `span` - Where the name read from the document stands.
+    // * `name` - The bytes of the name to compare it against.
+    named_as_written : Span -> Array U8 -> Decoder Bool;
+    named_as_written = |span, name| Decoder { _run : |c|
         let bytes = c.@bytes;
+        let size = name.@size;
+        if span.@to - span.@from != size { ok $ (false, c) };
         let same = loop((0), |i|
             if i == size { break $ true };
-            if bytes.@(from + i) != name.@(i) { break $ false };
+            if bytes.@(span.@from + i) != name.@(i) { break $ false };
             continue $ i + 1
         );
         ok $ (same, c)
     };
+
+    // Whether the text of a span that carries an escape is `name`, which the escape is resolved
+    // for first.
+    //
+    // # Parameters
+    // * `span` - Where the name read from the document stands.
+    // * `name` - The bytes of the name to compare it against.
+    // * `cursor` - Where the reading stands.
+    _named_escaped : Span -> Array U8 -> Cursor -> Result ErrMsg (Bool, Cursor);
+    _named_escaped = |span, name, cursor| (
+        let value = *Text::unescape(cursor.@bytes, span.@from, span.@to);
+        ok $ (value.get_bytes.pop_back == name, cursor)
+    );
 
     // Reads a number, which runs to the first byte that no number can carry.
     number : Decoder F64;

@@ -41,7 +41,11 @@ namespace Json {
     );
 }
 
-// Reads a document. The text is read as the bytes it is written in.
+// Reads a document, and answers with the value it holds.
+//
+// The text is read as the bytes it is written in. A document the grammar does not accept answers
+// with a message naming what was expected and the byte it stood at; so does one that carries text
+// behind its value.
 //
 // # Parameters
 // * `text` - The document to read.
@@ -190,8 +194,8 @@ namespace Read {
 
     // Reads the text of a string, whose opening quote sits before `at`.
     //
-    // A string that carries no escape is the bytes between the quotes, which is the common case and is
-    // taken whole. One that carries an escape is read byte by byte from the first escape onwards.
+    // The walk to the closing quote sees every escape on its way, so a string that carries none is
+    // the bytes between the quotes and is taken whole.
     //
     // # Parameters
     // * `bytes` - The document's bytes.
@@ -199,35 +203,58 @@ namespace Read {
     _string : Array U8 -> I64 -> Result ErrMsg (String, I64);
     _string = |bytes, at| (
         let size = bytes.@size;
-        let plain_end = loop((at), |i|
-            if i >= size { break $ i };
+        let (close, escaped) = loop((at, false), |(i, escaped)|
+            if i >= size { break $ (i, escaped) };
             let c = bytes.@(i);
-            if c == '"' || c == '\\' { break $ i };
-            continue $ i + 1
+            if c == '"' { break $ (i, escaped) };
+            if c == '\\' { continue $ (i + 2, true) };
+            continue $ (i + 1, escaped)
         );
-        if plain_end >= size { _expected("a closing quote", plain_end) };
-        if bytes.@(plain_end) == '"' {
-            ok $ (bytes.get_sub(at, plain_end)._string_of, plain_end + 1)
-        };
-        _escaped_string(bytes, at, plain_end)
+        if close >= size { _expected("a closing quote", close) };
+        if !escaped { ok $ (bytes.get_sub(at, close)._string_of, close + 1) };
+        let text = *Text::unescape(bytes, at, close);
+        ok $ (text, close + 1)
     );
 
-    // Reads the text of a string that carries an escape, from the quote after `at` to its close.
+    // Reads a number, which runs to the first byte that no number can carry.
     //
     // # Parameters
     // * `bytes` - The document's bytes.
-    // * `at` - The position after the opening quote.
-    // * `from` - The position of the first escape, whose bytes before it are taken as they stand.
-    _escaped_string : Array U8 -> I64 -> I64 -> Result ErrMsg (String, I64);
-    _escaped_string = |bytes, at, from| (
+    // * `at` - The position of the number's first byte.
+    _number : Array U8 -> I64 -> Result ErrMsg (Json, I64);
+    _number = |bytes, at| (
         let size = bytes.@size;
-        let (text, at) = *loop(
-            (bytes.get_sub(at, from), from), |(text, i)|
-            if i >= size { break $ _expected("a closing quote", i) };
+        let end = loop((at), |i|
+            if i >= size { break $ i };
             let c = bytes.@(i);
-            if c == '"' { break $ ok $ (text, i + 1) };
+            let carries = ('0' <= c && c <= '9') || c == '-' || c == '+' || c == '.'
+                || c == 'e' || c == 'E';
+            if carries { continue $ i + 1 };
+            break $ i
+        );
+        if end == at { _expected("a number", at) };
+        let value = *Number::parse(bytes, at, end);
+        ok $ (Json::number(value), end)
+    );
+}
+
+namespace Text {
+    // The text the bytes from `from` to `to` write, with every escape resolved.
+    //
+    // Bytes that no escape can open answer with a message naming what was expected and where it
+    // stood.
+    //
+    // # Parameters
+    // * `bytes` - The document's bytes.
+    // * `from` - The position of the text's first byte.
+    // * `to` - The position after its last byte.
+    unescape : Array U8 -> I64 -> I64 -> Result ErrMsg String;
+    unescape = |bytes, from, to| (
+        let text = *loop((Array::empty(to - from), from), |(text, i)|
+            if i >= to { break $ ok $ text };
+            let c = bytes.@(i);
             if c != '\\' { continue $ (text.push_back(c), i + 1) };
-            if i + 1 >= size { break $ _expected("an escape", i) };
+            if i + 1 >= to { break $ Read::_expected("an escape", i) };
             let e = bytes.@(i + 1);
             if e == 'u' {
                 let code = _hex4(bytes, i + 2);
@@ -238,7 +265,7 @@ namespace Read {
             if plain.is_err { break $ err $ plain.as_err };
             continue $ (text.push_back(plain.as_ok), i + 2)
         );
-        ok $ (text._string_of, at)
+        ok $ text._string_of
     );
 
     // The byte an escape other than `\u` stands for.
@@ -293,31 +320,16 @@ namespace Read {
             .push_back((0x80 + code / 64 % 64).u8)
             .push_back((0x80 + code % 64).u8)
     );
-
-    // Reads a number, which runs to the first byte that no number can carry.
-    //
-    // # Parameters
-    // * `bytes` - The document's bytes.
-    // * `at` - The position of the number's first byte.
-    _number : Array U8 -> I64 -> Result ErrMsg (Json, I64);
-    _number = |bytes, at| (
-        let size = bytes.@size;
-        let end = loop((at), |i|
-            if i >= size { break $ i };
-            let c = bytes.@(i);
-            let carries = ('0' <= c && c <= '9') || c == '-' || c == '+' || c == '.'
-                || c == 'e' || c == 'E';
-            if carries { continue $ i + 1 };
-            break $ i
-        );
-        if end == at { _expected("a number", at) };
-        let value = *Number::parse(bytes, at, end);
-        ok $ (Json::number(value), end)
-    );
 }
 
 // Writes a document. Every number is written to `precision` places after the point, with the zeros
 // that trail it dropped.
+//
+// A number carries further than `precision` places whenever it is not a multiple of
+// `10^-precision`, and those places are lost: `1.0 / 3.0` written to eight places reads back as
+// `0.33333333`, which is a different number. Reading a document back gives the numbers the text
+// writes, so a program that needs its own numbers back has to write them at a precision that holds
+// them.
 //
 // # Parameters
 // * `precision` - How many places a number is written to.
@@ -431,6 +443,8 @@ namespace Write {
 
 namespace Number {
     // The number the bytes from `at` to `end` write.
+    //
+    // Bytes that write no number answer with a message saying so.
     //
     // # Parameters
     // * `bytes` - The bytes to read from.

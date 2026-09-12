@@ -6,10 +6,9 @@
 module LangArena.Benchmarks.JsonDecode;
 
 import Json.Decode::{
-    Cursor, Decoder, 
-    Decoder::{at, expect, member, named, number, run, separated, skip_space, skip_value, step}
+    Decoder, 
+    Decoder::{at, decode, expect, member, name_bytes, named_as_written, number, separated, skip_space, skip_value, step}
 };
-import LangArena.Helper::bytes_of;
 import Std::{
     loop_m, Array, ErrMsg, F64, Result, String, U8, Array::{@size, empty, push_back}, 
     LoopState::{break_m, continue_m}, Monad::pure, Result::ok, String::get_bytes
@@ -20,23 +19,15 @@ import Std::{
 // # Parameters
 // * `text` - The document to read.
 read_points : String -> Result ErrMsg (Array (F64, F64, F64));
-read_points = |text| (
-    // `get_bytes` answers with the string's own array, which the string keeps holding, so
-    // dropping its null terminator would copy the whole of it. The terminator is left in place
-    // and the length stops one short of it.
-    let bytes = text.get_bytes;
-    let cursor = Cursor { bytes : bytes, size : bytes.@size - 1, at : 0 };
-    let (points, _) = *_document.run(cursor);
-    ok $ points
-);
+read_points = |text| _document.decode(text);
 
 // The name of the member holding the coordinates.
-_coordinates : Array U8 = "coordinates".bytes_of;
+_coordinates : Array U8 = name_bytes("coordinates");
 
 // The names of the three numbers a coordinate holds, in the order this reading keeps them.
-_x : Array U8 = "x".bytes_of;
-_y : Array U8 = "y".bytes_of;
-_z : Array U8 = "z".bytes_of;
+_x : Array U8 = name_bytes("x");
+_y : Array U8 = name_bytes("y");
+_z : Array U8 = name_bytes("z");
 
 // Reads the outermost object and answers with the coordinates its `coordinates` member holds.
 _document : Decoder (Array (F64, F64, F64));
@@ -47,8 +38,8 @@ _document = (
         skip_space;;
         let closed = *at('}');
         if closed { step;; break_m $ points };
-        let (from, to) = *member;
-        if *named(from, to, _coordinates) {
+        let span = *member;
+        if *named_as_written(span, _coordinates) {
             let points = *_points;
             let more = *separated('}');
             if more { continue_m $ points } else { break_m $ points }
@@ -83,10 +74,10 @@ _point = (
         skip_space;;
         let closed = *at('}');
         if closed { step;; break_m $ (x, y, z) };
-        let (from, to) = *member;
-        let is_x = *named(from, to, _x);
-        let is_y = *named(from, to, _y);
-        let is_z = *named(from, to, _z);
+        let span = *member;
+        let is_x = *named_as_written(span, _x);
+        let is_y = *named_as_written(span, _y);
+        let is_z = *named_as_written(span, _z);
         if is_x || is_y || is_z {
             let value = *number;
             let point = if is_x { (value, y, z) } else if is_y { (x, value, z) } else {
