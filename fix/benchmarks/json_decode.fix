@@ -1,10 +1,8 @@
-// Reads the coordinates out of a JSON document the way `LangArena.Benchmarks.JsonPoints` reads
-// them, with the position carried by a monad instead of by hand.
+// Reads the three numbers of each coordinate out of a JSON document, walking past every other
+// member it meets.
 //
-// The grammar and the order of the reads are the same as that module's, so what separates the two
-// is the plumbing alone: there, every step takes the bytes and a position and answers with the
-// position after it; here, every step is a `Json.Decode` reading and the positions are threaded by
-// `bind`.
+// The reading is built from the primitives of `Json.Decode`, which carry the position through a
+// monad, so a coordinate leaves its three numbers behind it and the document leaves no tree.
 module LangArena.Benchmarks.JsonDecode;
 
 import Json.Decode::{

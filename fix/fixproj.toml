@@ -6,7 +6,7 @@ version = "0.1.0"
 files = [
     "main.fix",
     "helper.fix",
-    "json.fix",
+    "json/json.fix",
     "json/decode.fix",
     "heap.fix",
     "bench.fix",
@@ -28,7 +28,6 @@ files = [
     "benchmarks/graph_path.fix",
     "benchmarks/json.fix",
     "benchmarks/json_decode.fix",
-    "benchmarks/json_points.fix",
     "benchmarks/log_parser.fix",
     "benchmarks/mandelbrot.fix",
     "benchmarks/matmul.fix",
