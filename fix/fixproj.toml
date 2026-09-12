@@ -6,8 +6,6 @@ version = "0.1.0"
 files = [
     "main.fix",
     "helper.fix",
-    "json/json.fix",
-    "json/decode.fix",
     "heap.fix",
     "bench.fix",
     "benchmarks/base64.fix",
@@ -46,6 +44,11 @@ files = [
 name = "time"
 version = "2.0.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-time.git" }
+
+[[dependencies]]
+name = "json"
+version = "0.1.0"
+git = { url = "https://github.com/tttmmmyyyy/fixlang-json.git" }
 
 [[dependencies]]
 name = "minilib-binary"
