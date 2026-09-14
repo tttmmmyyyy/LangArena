@@ -52,8 +52,8 @@ git = { url = "https://github.com/tttmmmyyyy/fixlang-json.git" }
 
 [[dependencies]]
 name = "minilib-binary"
-version = "0.7.0"
-git = { url = "https://github.com/tttmmmyyyy/fixlang-minilib-binary.git", rev = "1f1f8a746825686890b11e310e8b118ddd783505" }
+version = "0.7.1"
+git = { url = "https://github.com/pt9999/fixlang-minilib-binary.git" }
 
 [[dependencies]]
 name = "math"
