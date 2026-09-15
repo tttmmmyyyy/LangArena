@@ -19,10 +19,6 @@ _parse_mapping_name : String = "Json::ParseMapping";
 // The document opens with the array of coordinates, which is what the writing benchmark counts.
 _opening : String = "{\"coordinates\":";
 
-// The coordinates are rounded to eight decimal places, so eight places write every one of them
-// back exactly.
-_precision : U8 = 8_U8;
-
 // A number rounded to eight decimal places.
 //
 // # Parameters
@@ -100,7 +96,7 @@ _make_generate_bench : Json -> U32 -> Bench;
 _make_generate_bench = |document, total| Bench::make(
     |iterations| (
         let total = total + range(0, iterations).map(|_|
-            let text = Json::write(_precision, document);
+            let text = Json::write(document);
             if text.find(_opening, 0) == some(0) { 1_U32 } else { 0_U32 }
         ).sum;
         _make_generate_bench(document, total)
@@ -148,13 +144,13 @@ generate_entry = (_generate_name, |config, rng|
 parse_dom_entry : (String, MakeBench);
 parse_dom_entry = (_parse_dom_name, |config, rng| _make_parse_bench(
     _read,
-    Json::write(_precision, _build(config.config_i64(_parse_dom_name, "coords"), rng)),
+    Json::write(_build(config.config_i64(_parse_dom_name, "coords"), rng)),
     0_U32
 ));
 
 parse_mapping_entry : (String, MakeBench);
 parse_mapping_entry = (_parse_mapping_name, |config, rng| _make_parse_bench(
     _read_points,
-    Json::write(_precision, _build(config.config_i64(_parse_mapping_name, "coords"), rng)),
+    Json::write(_build(config.config_i64(_parse_mapping_name, "coords"), rng)),
     0_U32
 ));
