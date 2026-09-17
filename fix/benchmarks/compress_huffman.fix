@@ -10,7 +10,7 @@ import Std::{
     Array::{empty, fill, from_map, get_sub, push_back, set, sort_stable_by, @, @size}, 
     I64::{bit_and, shift_left}, Iterator::{fold, map, range, sum}, LoopState::{break, continue}, 
     Option::{as_some, none, some}, ToI64::i64, ToU32::u32, ToU8::u8, Tuple2::{@0, @1}, 
-    U8::{bit_and, bit_or, shift_left, shift_right}
+    U8::{bit_and, bit_or, shift_right}
 };
 
 _encode_name : String = "Compress::HuffEncode";
@@ -101,7 +101,7 @@ _code_text = |text, codes, lengths| (
         let (code, length) = (codes.@(value), lengths.@(value));
         range(0, length).fold((coded, partial, filled, bits), |step, (coded, partial, filled, bits)|
             let partial = if code.bit_and(1.shift_left(length - 1 - step)) == 0 { partial } else {
-                partial.bit_or(1_U8.shift_left((7 - filled).u8))
+                partial.bit_or(1.shift_left(7 - filled).u8)
             };
             if filled == 7 { (coded.push_back(partial), 0_U8, 0, bits + 1) };
             (coded, partial, filled + 1, bits + 1)
