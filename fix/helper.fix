@@ -43,7 +43,7 @@ _advance = |rng| Rng { last : (rng.@last * _lcg_multiplier + _lcg_increment) % _
 next_int : I64 -> Rng -> (I64, Rng);
 next_int = |max, rng| (
     let rng = rng._advance;
-    ((rng.@last.f64 / _lcg_modulus.f64 * max.f64).i64, rng)
+    (rng.@last * max / _lcg_modulus, rng)
 );
 
 // Draws a float in `[0, max)` and returns it with the advanced generator.
