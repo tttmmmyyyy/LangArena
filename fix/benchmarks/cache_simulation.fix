@@ -5,9 +5,10 @@ module LangArena.Benchmarks.CacheSimulation;
 import HashMap::{empty, erase, find, insert, HashMap};
 import LangArena.Bench::{Bench, MakeBench};
 import LangArena.Helper::{config_i64, next_int, Rng};
+import Std.Experimental::String::format;
 import Std::{
     Array, Bool, I64, String, U32, Add::add, Array::{fill, set, @}, Iterator::{fold, range}, 
-    Option::some, ToString::to_string, ToU32::u32, U32::shift_left
+    Option::some, ToU32::u32, U32::shift_left
 };
 
 _name : String = "Etc::CacheSimulation";
@@ -132,12 +133,12 @@ _make_bench = |values, cache, hits, misses, rng| (
             range(0, _asks_per_iteration).fold(
                 (cache, hits, misses, rng), |_, (cache, hits, misses, rng)|
                 let (index, rng) = rng.next_int(values);
-                let key = "item_" + index.to_string;
+                let key = "item_{}".format((index,));
                 let (held, cache) = cache._ask(key);
                 if held {
-                    (cache._put(key, "updated_" + id.to_string), hits + 1, misses, rng)
+                    (cache._put(key, "updated_{}".format((id,))), hits + 1, misses, rng)
                 } else {
-                    (cache._put(key, "new_" + id.to_string), hits, misses + 1, rng)
+                    (cache._put(key, "new_{}".format((id,))), hits, misses + 1, rng)
                 }
             )
         );
