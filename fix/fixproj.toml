@@ -47,7 +47,7 @@ git = { url = "https://github.com/tttmmmyyyy/fixlang-time.git" }
 
 [[dependencies]]
 name = "json"
-version = "0.6.0"
+version = "0.7.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-json.git" }
 
 [[dependencies]]
@@ -69,3 +69,9 @@ git = { url = "https://github.com/tttmmmyyyy/fixlang-hashmap.git" }
 name = "regexp"
 version = "1.2.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-regexp.git" }
+
+
+[[dependencies]]
+name = "std-experimental"
+version = "0.2.0"
+git = { url = "https://github.com/tttmmmyyyy/fixlang-std-experimental.git" }
