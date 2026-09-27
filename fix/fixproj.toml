@@ -47,12 +47,12 @@ git = { url = "https://github.com/tttmmmyyyy/fixlang-time.git" }
 
 [[dependencies]]
 name = "json"
-version = "0.5.0"
+version = "0.6.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-json.git" }
 
 [[dependencies]]
 name = "minilib-binary"
-version = "0.7.1"
+version = "0.7.2"
 git = { url = "https://github.com/pt9999/fixlang-minilib-binary.git" }
 
 [[dependencies]]
@@ -62,10 +62,10 @@ git = { url = "https://github.com/tttmmmyyyy/fixlang-math.git" }
 
 [[dependencies]]
 name = "hashmap"
-version = "2.0.1"
+version = "2.1.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-hashmap.git" }
 
 [[dependencies]]
 name = "regexp"
-version = "1.1.6"
+version = "1.2.0"
 git = { url = "https://github.com/tttmmmyyyy/fixlang-regexp.git" }

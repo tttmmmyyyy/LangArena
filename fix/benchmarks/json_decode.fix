@@ -1,11 +1,11 @@
 // Reads the three numbers of each coordinate out of a JSON document, walking past every other
 // member it meets.
 //
-// The reading is built from the primitives of `Json.Decode`, which carry the position through a
+// The reading is built from the primitives of `Json.Decoder`, which carry the position through a
 // monad, so a coordinate leaves its three numbers behind it and the document leaves no tree.
 module LangArena.Benchmarks.JsonDecode;
 
-import Json.Decode::{
+import Json.Decoder::{
     Decoder, 
     Decoder::{decode, is_named_as_written, read_array, read_number, read_object}
 };
