@@ -6,11 +6,11 @@ import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Benchmarks.JsonDecode::read_points;
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
 import Math::round;
-import Std.Experimental::{Format, Format::write_text, String::format};
+import Std.Experimental::{Format, F64::with_precision, Format::write_text, String::format};
 import Std::{
-    Array, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back}, F64::to_string_precision, 
-    Functor::map, Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, 
-    String::find, ToF64::f64, ToString::to_string, Tuple3::{@0, @1, @2}
+    Array, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back}, Functor::map, 
+    Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, String::find, 
+    ToF64::f64, Tuple3::{@0, @1, @2}
 };
 
 _generate_name : String = "Json::Generate";
@@ -75,7 +75,7 @@ _build = |coords, rng| (
             x : _rounded(x),
             y : _rounded(y),
             z : _rounded(z),
-            name : marker.to_string_precision(7_U8) + " " + tag.to_string
+            name : "{} {}".format((marker.with_precision(7_U8), tag))
         };
         (coordinates.push_back(coordinate), rng)
     );
