@@ -6,7 +6,9 @@ import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Benchmarks.JsonDecode::read_points;
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
 import Math::round;
-import Std.Experimental::{Format, F64::with_precision, Format::{write_text, TextOut}, String::format};
+import Std.Experimental::{
+    Array::with_separator, Format, F64::with_precision, Format::{write_text, TextOut}, String::format
+};
 import Std::{
     Array, Bool, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back}, Functor::map, 
     Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, String::find, 
@@ -67,12 +69,10 @@ _write_options = |options, out| (
 // Writes the document as a JSON object.
 impl Document : Format {
     write_text = |d, out| (
-        let coordinates = d.@coordinates;
-        let out = range(0, coordinates.@size).fold(out.write_text(_opening).write_text("["), |i, out|
-            let out = if i == 0 { out } else { out.write_text(",") };
-            out.write_text(coordinates.@(i))
-        );
-        out.write_text("],\"info\":").write_text(Json::string(d.@info)).write_text("}")
+        out.write_text(_opening)
+            .write_text("[").write_text(d.@coordinates.with_separator(",")).write_text("]")
+            .write_text(",\"info\":").write_text(Json::string(d.@info))
+            .write_text("}")
     );
 }
 
