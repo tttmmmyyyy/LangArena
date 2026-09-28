@@ -1,11 +1,12 @@
 // Writes a document of coordinates as JSON, and reads the coordinates back out of it.
 module LangArena.Benchmarks.Json;
 
-import Json::{read, write, Json, Json::{array, as_array, as_number, as_object, bool, number, object, string}, Object::find};
+import Json::{read, Json, Json::{as_array, as_number, as_object, string}, Object::find};
 import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Benchmarks.JsonDecode::read_points;
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
 import Math::round;
+import Std.Experimental::{Format, Format::write_text, String::format};
 import Std::{
     Array, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back}, F64::to_string_precision, 
     Functor::map, Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, 
@@ -26,35 +27,67 @@ _opening : String = "{\"coordinates\":";
 _rounded : F64 -> F64;
 _rounded = |value| (value * 100000000.0).round / 100000000.0;
 
-// Writes the document the benchmarks work over: one entry per coordinate, each holding its three
-// numbers, a name, and a table of options.
+// One entry of the document: a coordinate's three numbers and its name. Every entry carries the
+// same table of options, which `write_text` writes as it stands.
+type Coordinate = unbox struct { x : F64, y : F64, z : F64, name : String };
+
+// The document the benchmarks work over: the coordinates, and a line of information.
+type Document = unbox struct { coordinates : Array Coordinate, info : String };
+
+// Writes an entry as a JSON object. The names of its members are written as they stand, the way a
+// serializer derived from the struct writes them.
+impl Coordinate : Format {
+    write_text = |c, out| (
+        out.write_text("{\"x\":").write_text(c.@x)
+            .write_text(",\"y\":").write_text(c.@y)
+            .write_text(",\"z\":").write_text(c.@z)
+            .write_text(",\"name\":").write_text(Json::string(c.@name))
+            .write_text(",\"opts\":{\"1\":[1,true]}}")
+    );
+}
+
+// Writes the document as a JSON object.
+impl Document : Format {
+    write_text = |d, out| (
+        let coordinates = d.@coordinates;
+        let out = range(0, coordinates.@size).fold(out.write_text(_opening).write_text("["), |i, out|
+            let out = if i == 0 { out } else { out.write_text(",") };
+            out.write_text(coordinates.@(i))
+        );
+        out.write_text("],\"info\":").write_text(Json::string(d.@info)).write_text("}")
+    );
+}
+
+// Builds the document the benchmarks work over: one entry per coordinate.
 //
 // # Parameters
 // * `coords` - How many coordinates the document holds.
 // * `rng` - The generator the numbers come from.
-_build : I64 -> Rng -> Json;
+_build : I64 -> Rng -> Document;
 _build = |coords, rng| (
-    let (entries, _) = range(0, coords).fold((Array::empty(coords), rng), |_, (entries, rng)|
+    let (coordinates, _) = range(0, coords).fold((Array::empty(coords), rng), |_, (coordinates, rng)|
         let (x, rng) = rng.next_float(1.0);
         let (y, rng) = rng.next_float(1.0);
         let (z, rng) = rng.next_float(1.0);
         let (marker, rng) = rng.next_float(1.0);
         let (tag, rng) = rng.next_int(10000);
-        let entry = Json::object([
-            ("x", Json::number(_rounded(x))),
-            ("y", Json::number(_rounded(y))),
-            ("z", Json::number(_rounded(z))),
-            ("name", Json::string(marker.to_string_precision(7_U8) + " " + tag.to_string)),
-            ("opts", Json::object([
-                ("1", Json::array([Json::number(1.0), Json::bool(true)]))
-            ]))
-        ]);
-        (entries.push_back(entry), rng)
+        let coordinate = Coordinate {
+            x : _rounded(x),
+            y : _rounded(y),
+            z : _rounded(z),
+            name : marker.to_string_precision(7_U8) + " " + tag.to_string
+        };
+        (coordinates.push_back(coordinate), rng)
     );
-    Json::object([
-        ("coordinates", Json::array(entries)), ("info", Json::string("some info"))
-    ])
+    Document { coordinates : coordinates, info : "some info" }
 );
+
+// The document written as JSON.
+//
+// # Parameters
+// * `document` - The document to write.
+_write : Document -> String;
+_write = |document| "{}".format((document,));
 
 // The entries of a document, as the three numbers each of them holds.
 //
@@ -92,11 +125,11 @@ _average_checksum = |points| (
 // # Parameters
 // * `document` - The document to write.
 // * `total` - The count of the writings so far.
-_make_generate_bench : Json -> U32 -> Bench;
+_make_generate_bench : Document -> U32 -> Bench;
 _make_generate_bench = |document, total| Bench::make(
     |iterations| (
         let total = total + range(0, iterations).map(|_|
-            let text = Json::write(document);
+            let text = _write(document);
             if text.find(_opening, 0) == some(0) { 1_U32 } else { 0_U32 }
         ).sum;
         _make_generate_bench(document, total)
@@ -134,8 +167,8 @@ _read = |text| _points(Json::read(text).as_ok);
 _read_points : String -> Array (F64, F64, F64);
 _read_points = |text| JsonDecode::read_points(text).as_ok;
 
-// The benchmarks, as the runner's registry holds them. Both readings go through the same tree,
-// since a document is read into a tree whichever shape the coordinates are then carried into.
+// The benchmarks, as the runner's registry holds them. The reading benchmarks read the text the
+// writing benchmark writes.
 generate_entry : (String, MakeBench);
 generate_entry = (_generate_name, |config, rng|
     _make_generate_bench(_build(config.config_i64(_generate_name, "coords"), rng), 0_U32)
@@ -144,13 +177,13 @@ generate_entry = (_generate_name, |config, rng|
 parse_dom_entry : (String, MakeBench);
 parse_dom_entry = (_parse_dom_name, |config, rng| _make_parse_bench(
     _read,
-    Json::write(_build(config.config_i64(_parse_dom_name, "coords"), rng)),
+    _write(_build(config.config_i64(_parse_dom_name, "coords"), rng)),
     0_U32
 ));
 
 parse_mapping_entry : (String, MakeBench);
 parse_mapping_entry = (_parse_mapping_name, |config, rng| _make_parse_bench(
     _read_points,
-    Json::write(_build(config.config_i64(_parse_mapping_name, "coords"), rng)),
+    _write(_build(config.config_i64(_parse_mapping_name, "coords"), rng)),
     0_U32
 ));
