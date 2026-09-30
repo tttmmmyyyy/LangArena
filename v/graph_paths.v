@@ -2,6 +2,7 @@ module graph_paths
 
 import benchmark
 import helper
+import datatypes
 
 struct Graph {
 pub:
@@ -200,77 +201,16 @@ pub fn (b GraphPathDFS) checksum() u32 {
 	return b.result_val
 }
 
-struct PriorityQueue {
-mut:
-	vertices   []int
-	priorities []int
-	size       int
+struct AStarItem {
+	priority int
+	vertex   int
 }
 
-fn priority_queue_new(capacity int) PriorityQueue {
-	return PriorityQueue{
-		vertices:   []int{len: capacity, init: 0}
-		priorities: []int{len: capacity, init: 0}
-		size:       0
+fn (a AStarItem) < (b AStarItem) bool {
+	if a.priority != b.priority {
+		return a.priority < b.priority
 	}
-}
-
-fn (mut pq PriorityQueue) push(vertex int, priority int) {
-	if pq.size >= pq.vertices.len {
-		pq.vertices << 0
-		pq.priorities << 0
-	}
-
-	mut i := pq.size
-	pq.size++
-	pq.vertices[i] = vertex
-	pq.priorities[i] = priority
-
-	for i > 0 {
-		parent := (i - 1) / 2
-		if pq.priorities[parent] <= pq.priorities[i] {
-			break
-		}
-		pq.vertices[i], pq.vertices[parent] = pq.vertices[parent], pq.vertices[i]
-		pq.priorities[i], pq.priorities[parent] = pq.priorities[parent], pq.priorities[i]
-		i = parent
-	}
-}
-
-fn (mut pq PriorityQueue) pop() ?int {
-	if pq.size == 0 {
-		return none
-	}
-
-	result := pq.vertices[0]
-	pq.size--
-
-	if pq.size > 0 {
-		pq.vertices[0] = pq.vertices[pq.size]
-		pq.priorities[0] = pq.priorities[pq.size]
-
-		mut i := 0
-		for {
-			left := 2 * i + 1
-			right := 2 * i + 2
-			mut smallest := i
-
-			if left < pq.size && pq.priorities[left] < pq.priorities[smallest] {
-				smallest = left
-			}
-			if right < pq.size && pq.priorities[right] < pq.priorities[smallest] {
-				smallest = right
-			}
-			if smallest == i {
-				break
-			}
-			pq.vertices[i], pq.vertices[smallest] = pq.vertices[smallest], pq.vertices[i]
-			pq.priorities[i], pq.priorities[smallest] = pq.priorities[smallest], pq.priorities[i]
-			i = smallest
-		}
-	}
-
-	return result
+	return a.vertex < b.vertex
 }
 
 pub struct GraphPathAStar {
@@ -297,41 +237,37 @@ fn a_star_shortest_path(graph &Graph, start int, target int) int {
 		return 0
 	}
 
-	mut g_score := []int{len: graph.vertices, init: int(0x7fffffff)}
-	mut closed := []u8{len: graph.vertices, init: 0}
+	n := graph.vertices
+	inf := int(0x7fffffff)
+
+	mut g_score := []int{len: n, init: inf}
+	mut best_f := []int{len: n, init: inf}
 
 	g_score[start] = 0
+	f_start := heuristic(start, target)
+	best_f[start] = f_start
 
-	mut open_set := priority_queue_new(graph.vertices)
-	mut in_open_set := []u8{len: graph.vertices, init: 0}
+	mut open_set := datatypes.MinHeap[AStarItem]{}
+	open_set.insert(AStarItem{f_start, start})
 
-	open_set.push(start, heuristic(start, target))
-	in_open_set[start] = 1
-
-	for {
-		current := open_set.pop() or { break }
-		in_open_set[current] = 0
+	for open_set.len() > 0 {
+		entry := open_set.pop() or { break }
+		current := entry.vertex
 
 		if current == target {
 			return g_score[current]
 		}
 
-		closed[current] = 1
-
 		for neighbor in graph.adj[current] {
-			if closed[neighbor] == 1 {
-				continue
-			}
-
 			tentative_g := g_score[current] + 1
 
 			if tentative_g < g_score[neighbor] {
 				g_score[neighbor] = tentative_g
-				f := tentative_g + heuristic(neighbor, target)
+				f_new := tentative_g + heuristic(neighbor, target)
 
-				if in_open_set[neighbor] == 0 {
-					open_set.push(neighbor, f)
-					in_open_set[neighbor] = 1
+				if f_new < best_f[neighbor] {
+					best_f[neighbor] = f_new
+					open_set.insert(AStarItem{f_new, neighbor})
 				}
 			}
 		}

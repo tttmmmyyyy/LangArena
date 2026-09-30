@@ -1,34 +1,16 @@
 use super::super::{helper, Benchmark};
 use crate::config_i64;
 use std::collections::HashMap;
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::ptr::NonNull;
 
-struct LRUCache<K, V>
-where
-    K: Eq + Hash + Clone,
-    V: Clone,
-{
-    capacity: usize,
-    cache: HashMap<K, NonNull<Node<K, V>>>,
-    head: Option<NonNull<Node<K, V>>>,
-    tail: Option<NonNull<Node<K, V>>>,
-    size: usize,
-
-    _k: PhantomData<K>,
-    _v: PhantomData<V>,
+struct Node {
+    key: String,
+    value: String,
+    prev: Option<usize>,
+    next: Option<usize>,
 }
 
-struct Node<K, V> {
-    key: K,
-    value: V,
-    prev: Option<NonNull<Node<K, V>>>,
-    next: Option<NonNull<Node<K, V>>>,
-}
-
-impl<K, V> Node<K, V> {
-    fn new(key: K, value: V) -> Self {
+impl Node {
+    fn new(key: String, value: String) -> Self {
         Node {
             key,
             value,
@@ -38,71 +20,59 @@ impl<K, V> Node<K, V> {
     }
 }
 
-unsafe impl<K, V> Send for LRUCache<K, V>
-where
-    K: Send + Eq + Hash + Clone,
-    V: Send + Clone,
-{
+struct LruCache {
+    capacity: usize,
+    cache: HashMap<String, usize>,
+    nodes: Vec<Node>,
+    free: Vec<usize>,
+    head: Option<usize>,
+    tail: Option<usize>,
+    size: usize,
 }
 
-unsafe impl<K, V> Sync for LRUCache<K, V>
-where
-    K: Sync + Eq + Hash + Clone,
-    V: Sync + Clone,
-{
-}
-
-impl<K, V> LRUCache<K, V>
-where
-    K: Eq + Hash + Clone,
-    V: Clone,
-{
+impl LruCache {
     fn new(capacity: usize) -> Self {
-        LRUCache {
+        LruCache {
             capacity,
             cache: HashMap::with_capacity(capacity),
+            nodes: Vec::with_capacity(capacity),
+            free: Vec::new(),
             head: None,
             tail: None,
             size: 0,
-            _k: PhantomData,
-            _v: PhantomData,
         }
     }
 
-    fn get(&mut self, key: &K) -> Option<V> {
-        let node_ptr = *self.cache.get(key)?;
-
-        unsafe {
-            self.move_to_front(node_ptr);
-            Some((*node_ptr.as_ptr()).value.clone())
-        }
+    fn get(&mut self, key: &str) -> Option<&str> {
+        let node = *self.cache.get(key)?;
+        self.move_to_front(node);
+        Some(&self.nodes[node].value)
     }
 
-    fn put(&mut self, key: K, value: V) {
-        if let Some(&node_ptr) = self.cache.get(&key) {
-            unsafe {
-                (*node_ptr.as_ptr()).value = value;
-                self.move_to_front(node_ptr);
-            }
+    fn put(&mut self, key: String, value: String) {
+        if let Some(&node) = self.cache.get(&key) {
+            self.nodes[node].value = value;
+            self.move_to_front(node);
             return;
         }
 
         if self.size >= self.capacity {
-            unsafe {
-                self.remove_oldest();
-            }
+            self.remove_oldest();
         }
 
-        let node_ptr = unsafe {
-            let node = Box::new(Node::new(key.clone(), value));
-            NonNull::new_unchecked(Box::into_raw(node))
+        let node = match self.free.pop() {
+            Some(slot) => {
+                self.nodes[slot] = Node::new(key.clone(), value);
+                slot
+            }
+            None => {
+                self.nodes.push(Node::new(key.clone(), value));
+                self.nodes.len() - 1
+            }
         };
 
-        self.cache.insert(key, node_ptr);
-
-        unsafe {
-            self.add_to_front(node_ptr);
-        }
+        self.cache.insert(key, node);
+        self.add_to_front(node);
         self.size += 1;
     }
 
@@ -110,109 +80,93 @@ where
         self.size
     }
 
-    unsafe fn move_to_front(&mut self, node_ptr: NonNull<Node<K, V>>) {
-        if Some(node_ptr) == self.head {
+    fn move_to_front(&mut self, node: usize) {
+        if Some(node) == self.head {
             return;
         }
 
-        let node = node_ptr.as_ptr();
+        let prev = self.nodes[node].prev;
+        let next = self.nodes[node].next;
 
-        if let Some(prev_ptr) = (*node).prev {
-            (*prev_ptr.as_ptr()).next = (*node).next;
+        if let Some(p) = prev {
+            self.nodes[p].next = next;
         }
-        if let Some(next_ptr) = (*node).next {
-            (*next_ptr.as_ptr()).prev = (*node).prev;
-        }
-
-        if Some(node_ptr) == self.tail {
-            self.tail = (*node).prev;
+        if let Some(n) = next {
+            self.nodes[n].prev = prev;
         }
 
-        (*node).prev = None;
-        (*node).next = self.head;
-
-        if let Some(head_ptr) = self.head {
-            (*head_ptr.as_ptr()).prev = Some(node_ptr);
+        if Some(node) == self.tail {
+            self.tail = prev;
         }
 
-        self.head = Some(node_ptr);
+        self.nodes[node].prev = None;
+        self.nodes[node].next = self.head;
+
+        if let Some(h) = self.head {
+            self.nodes[h].prev = Some(node);
+        }
+
+        self.head = Some(node);
 
         if self.tail.is_none() {
-            self.tail = Some(node_ptr);
+            self.tail = Some(node);
         }
     }
 
-    unsafe fn add_to_front(&mut self, node_ptr: NonNull<Node<K, V>>) {
-        let node = node_ptr.as_ptr();
-        (*node).next = self.head;
+    fn add_to_front(&mut self, node: usize) {
+        self.nodes[node].next = self.head;
 
-        if let Some(head_ptr) = self.head {
-            (*head_ptr.as_ptr()).prev = Some(node_ptr);
+        if let Some(h) = self.head {
+            self.nodes[h].prev = Some(node);
         }
 
-        self.head = Some(node_ptr);
+        self.head = Some(node);
 
         if self.tail.is_none() {
-            self.tail = Some(node_ptr);
+            self.tail = Some(node);
         }
     }
 
-    unsafe fn remove_oldest(&mut self) {
-        if let Some(tail_ptr) = self.tail {
-            let tail = tail_ptr.as_ptr();
+    fn remove_oldest(&mut self) {
+        if let Some(tail_node) = self.tail {
+            self.cache.remove(&self.nodes[tail_node].key);
 
-            self.cache.remove(&(*tail).key);
-
-            if let Some(prev_ptr) = (*tail).prev {
-                (*prev_ptr.as_ptr()).next = None;
+            let prev = self.nodes[tail_node].prev;
+            if let Some(p) = prev {
+                self.nodes[p].next = None;
             }
 
-            self.tail = (*tail).prev;
+            self.tail = prev;
 
-            if Some(tail_ptr) == self.head {
+            if Some(tail_node) == self.head {
                 self.head = None;
             }
 
-            let _ = Box::from_raw(tail);
+            self.free.push(tail_node);
             self.size -= 1;
-        }
-    }
-}
-
-impl<K, V> Drop for LRUCache<K, V>
-where
-    K: Eq + Hash + Clone,
-    V: Clone,
-{
-    fn drop(&mut self) {
-        while let Some(head_ptr) = self.head {
-            unsafe {
-                self.head = (*head_ptr.as_ptr()).next;
-                let _ = Box::from_raw(head_ptr.as_ptr());
-            }
         }
     }
 }
 
 pub struct CacheSimulation {
     result_val: u32,
-    values_size: i32,
-    cache_size: i32,
-    cache: LRUCache<String, String>,
-    hits: i32,
-    misses: i32,
+    values_size: i64,
+    cache_size: i64,
+    cache: LruCache,
+    hits: u32,
+    misses: u32,
 }
 
 impl CacheSimulation {
     pub fn new() -> Self {
-        let values_size = config_i64("Etc::CacheSimulation", "values") as i32;
-        let cache_size = config_i64("Etc::CacheSimulation", "size") as i32;
+        let values_size = config_i64("Etc::CacheSimulation", "values");
+        let cache_size = config_i64("Etc::CacheSimulation", "size");
 
         Self {
             result_val: 5432,
             values_size,
             cache_size,
-            cache: LRUCache::new(cache_size as usize),
+            cache: LruCache::new(cache_size as usize),
             hits: 0,
             misses: 0,
         }
@@ -225,33 +179,29 @@ impl Benchmark for CacheSimulation {
     }
 
     fn prepare(&mut self) {
-        self.cache = LRUCache::new(self.cache_size as usize);
+        self.cache = LruCache::new(self.cache_size as usize);
         self.hits = 0;
         self.misses = 0;
     }
 
     fn run(&mut self, iteration_id: i64) {
         for _ in 0..1000 {
-            let key_idx = helper::next_int(self.values_size);
-            let key = format!("item_{}", key_idx);
-
-            if let Some(_) = self.cache.get(&key) {
+            let key = format!("item_{}", helper::next_int(self.values_size as i32));
+            if self.cache.get(&key).is_some() {
                 self.hits += 1;
-                let val = format!("updated_{}", iteration_id);
-                self.cache.put(key, val);
+                self.cache.put(key, format!("updated_{}", iteration_id));
             } else {
                 self.misses += 1;
-                let val = format!("new_{}", iteration_id);
-                self.cache.put(key, val);
+                self.cache.put(key, format!("new_{}", iteration_id));
             }
         }
     }
 
     fn checksum(&self) -> u32 {
         let mut result = self.result_val;
-        result = (result << 5) + self.hits as u32;
-        result = (result << 5) + self.misses as u32;
-        result = (result << 5) + self.cache.len() as u32;
+        result = (result << 5).wrapping_add(self.hits);
+        result = (result << 5).wrapping_add(self.misses);
+        result = (result << 5).wrapping_add(self.cache.len() as u32);
         result
     }
 }

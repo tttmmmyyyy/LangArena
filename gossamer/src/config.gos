@@ -1,0 +1,57 @@
+use std::{errors, fs}
+use std::encoding::json
+
+pub struct Config {
+    ints: Map<String, i64>
+    strs: Map<String, String>
+    order: Vec<String>
+}
+
+impl Config {
+    pub fn load(path: String) -> Result<Config, errors::Error> {
+        let mut cfg = Config { ints: Map::new(), strs: Map::new(), order: #[] }
+        let text = fs::read_to_string(path)?
+        let root = json::parse(text)?
+        let items = json::as_array(root).ok_or(errors::new("config root is not a JSON array"))?
+
+        for item in items {
+            let Some(name) = json::get(item, "name").and_then(json::as_str) else { continue }
+            if name == "" { continue }
+            cfg.order.push(name)
+
+            for field in json::keys(item).unwrap_or(#[]) {
+                if let Some(value) = json::get(item, field) {
+                    let key = format("{}|{}", name, field)
+                    if let Some(n) = json::as_i64(value) {
+                        let _ = cfg.ints.insert(key, n)
+                    } else if let Some(s) = json::as_str(value) {
+                        let _ = cfg.strs.insert(key, s)
+                    }
+                }
+            }
+        }
+        Ok(cfg)
+    }
+
+    pub fn order(&self) -> Vec<String> { self.order }
+
+    pub fn int(&self, name: String, field: String) -> i64 {
+        self.ints.get_or(format("{}|{}", name, field), 0)
+    }
+
+    pub fn str(&self, name: String, field: String) -> String {
+        self.strs.get_or(format("{}|{}", name, field), "")
+    }
+
+    pub fn iterations(&self, name: String) -> i64 {
+        let n = self.int(name, "iterations")
+        if n > 0 { n } else { 1 }
+    }
+
+    pub fn warmup_iterations(&self, name: String) -> i64 {
+        let n = self.int(name, "warmup_iterations")
+        if n > 0 { return n }
+        let d = (self.iterations(name) as f64 * 0.2) as i64
+        if d < 1 { 1 } else { d }
+    }
+}

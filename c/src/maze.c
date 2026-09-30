@@ -25,13 +25,11 @@ typedef struct {
   MazeCell *finish;
 } Maze;
 
-static MazeCell *maze_cell_create(int x, int y) {
-  MazeCell *cell = malloc(sizeof(MazeCell));
+static void maze_cell_init(MazeCell *cell, int x, int y) {
   cell->kind = MAZE_CELL_WALL;
   cell->x = x;
   cell->y = y;
   cell->neighbor_count = 0;
-  return cell;
 }
 
 static void maze_cell_add_neighbor(MazeCell *cell, MazeCell *neighbor) {
@@ -52,6 +50,11 @@ static void maze_cell_reset(MazeCell *cell) {
 }
 
 static Maze *maze_create(int width, int height) {
+  if (width < 5)
+    width = 5;
+  if (height < 5)
+    height = 5;
+
   Maze *maze = malloc(sizeof(Maze));
   maze->width = width;
   maze->height = height;
@@ -60,7 +63,7 @@ static Maze *maze_create(int width, int height) {
   for (int y = 0; y < height; y++) {
     maze->cells[y] = malloc(width * sizeof(MazeCell));
     for (int x = 0; x < width; x++) {
-      maze->cells[y][x] = *maze_cell_create(x, y);
+      maze_cell_init(&maze->cells[y][x], x, y);
     }
   }
 
@@ -111,9 +114,8 @@ static void maze_reset(Maze *maze) {
 }
 
 static void maze_dig(Maze *maze, MazeCell *start_cell) {
-  size_t max_size = maze->width * maze->height;
+  size_t max_size = (size_t)maze->width * (size_t)maze->height;
   MazeCell **stack = malloc(max_size * sizeof(MazeCell *));
-
   if (!stack)
     return;
 
@@ -137,13 +139,10 @@ static void maze_dig(Maze *maze, MazeCell *start_cell) {
     for (int i = 0; i < cell->neighbor_count; i++) {
       MazeCell *n = cell->neighbors[i];
       if (n->kind == MAZE_CELL_WALL) {
-
         if (stack_size >= max_size) {
-
           max_size *= 2;
           MazeCell **new_stack = realloc(stack, max_size * sizeof(MazeCell *));
           if (!new_stack) {
-
             free(stack);
             return;
           }
@@ -156,34 +155,26 @@ static void maze_dig(Maze *maze, MazeCell *start_cell) {
 
   free(stack);
 }
-static void maze_ensure_open_finish(Maze *maze, MazeCell *start_cell) {
-  MazeCell **stack = malloc(maze->width * maze->height * sizeof(MazeCell *));
-  int stack_size = 0;
-  stack[stack_size++] = start_cell;
 
-  while (stack_size > 0) {
-    MazeCell *cell = stack[--stack_size];
+static void maze_ensure_open_finish(Maze *maze, MazeCell *cell) {
+  (void)maze;
+  cell->kind = MAZE_CELL_SPACE;
 
-    cell->kind = MAZE_CELL_SPACE;
-
-    int walkable = 0;
-    for (int i = 0; i < cell->neighbor_count; i++) {
-      if (maze_cell_is_walkable(cell->neighbors[i]))
-        walkable++;
-    }
-
-    if (walkable > 1)
-      continue;
-
-    for (int i = 0; i < cell->neighbor_count; i++) {
-      MazeCell *n = cell->neighbors[i];
-      if (n->kind == MAZE_CELL_WALL) {
-        stack[stack_size++] = n;
-      }
-    }
+  int walkable = 0;
+  for (int i = 0; i < cell->neighbor_count; i++) {
+    if (maze_cell_is_walkable(cell->neighbors[i]))
+      walkable++;
   }
 
-  free(stack);
+  if (walkable > 1)
+    return;
+
+  for (int i = 0; i < cell->neighbor_count; i++) {
+    MazeCell *n = cell->neighbors[i];
+    if (n->kind == MAZE_CELL_WALL) {
+      maze_ensure_open_finish(maze, n);
+    }
+  }
 }
 
 static void maze_generate(Maze *maze) {
@@ -240,17 +231,6 @@ typedef struct {
 
 void MazeGenerator_prepare(Benchmark *self) {
   MazeGeneratorData *data = (MazeGeneratorData *)self->data;
-
-  data->width = (int)Helper_config_i64(self->name, "w");
-  data->height = (int)Helper_config_i64(self->name, "h");
-
-  if (data->width < 5)
-    data->width = 5;
-  if (data->height < 5)
-    data->height = 5;
-
-  data->maze = maze_create(data->width, data->height);
-  maze_update_neighbors(data->maze);
   data->result_val = 0;
 }
 
@@ -280,6 +260,18 @@ void MazeGenerator_cleanup(Benchmark *self) {
 Benchmark *MazeGenerator_create(void) {
   Benchmark *bench = Benchmark_create("Maze::Generator");
   MazeGeneratorData *data = calloc(1, sizeof(MazeGeneratorData));
+
+  data->width = (int)Helper_config_i64(bench->name, "w");
+  data->height = (int)Helper_config_i64(bench->name, "h");
+  if (data->width < 5)
+    data->width = 5;
+  if (data->height < 5)
+    data->height = 5;
+
+  data->maze = maze_create(data->width, data->height);
+  maze_update_neighbors(data->maze);
+  data->result_val = 0;
+
   bench->data = data;
   bench->prepare = MazeGenerator_prepare;
   bench->run = MazeGenerator_run;
@@ -301,25 +293,6 @@ typedef struct {
   MazeCell **path;
   int path_length;
 } MazeBFSData;
-
-void MazeBFS_prepare(Benchmark *self) {
-  MazeBFSData *data = (MazeBFSData *)self->data;
-
-  data->width = (int)Helper_config_i64(self->name, "w");
-  data->height = (int)Helper_config_i64(self->name, "h");
-
-  if (data->width < 5)
-    data->width = 5;
-  if (data->height < 5)
-    data->height = 5;
-
-  data->maze = maze_create(data->width, data->height);
-  maze_update_neighbors(data->maze);
-  maze_generate(data->maze);
-  data->result_val = 0;
-  data->path = NULL;
-  data->path_length = 0;
-}
 
 static MazeCell **maze_bfs(Maze *maze, MazeCell *start, MazeCell *target,
                            int *out_length) {
@@ -359,7 +332,6 @@ static MazeCell **maze_bfs(Maze *maze, MazeCell *start, MazeCell *target,
       MazeCell *neighbor = cell->neighbors[i];
 
       if (neighbor == target) {
-
         int length = 1;
         int cur = path_id;
         while (cur >= 0) {
@@ -418,6 +390,14 @@ static uint32_t mid_cell_checksum(MazeCell **path, int length) {
   return (uint32_t)(cell->x * cell->y);
 }
 
+void MazeBFS_prepare(Benchmark *self) {
+  MazeBFSData *data = (MazeBFSData *)self->data;
+  maze_generate(data->maze);
+  data->result_val = 0;
+  data->path = NULL;
+  data->path_length = 0;
+}
+
 void MazeBFS_run(Benchmark *self, int iteration_id) {
   (void)iteration_id;
   MazeBFSData *data = (MazeBFSData *)self->data;
@@ -448,6 +428,20 @@ void MazeBFS_cleanup(Benchmark *self) {
 Benchmark *MazeBFS_create(void) {
   Benchmark *bench = Benchmark_create("Maze::BFS");
   MazeBFSData *data = calloc(1, sizeof(MazeBFSData));
+
+  data->width = (int)Helper_config_i64(bench->name, "w");
+  data->height = (int)Helper_config_i64(bench->name, "h");
+  if (data->width < 5)
+    data->width = 5;
+  if (data->height < 5)
+    data->height = 5;
+
+  data->maze = maze_create(data->width, data->height);
+  maze_update_neighbors(data->maze);
+  data->result_val = 0;
+  data->path = NULL;
+  data->path_length = 0;
+
   bench->data = data;
   bench->prepare = MazeBFS_prepare;
   bench->run = MazeBFS_run;
@@ -463,7 +457,6 @@ typedef struct {
 
 typedef struct {
   AStarPriorityQueueEntry *heap;
-  int *best_priority;
   int size;
   int capacity;
 } AStarPriorityQueue;
@@ -471,19 +464,12 @@ typedef struct {
 static AStarPriorityQueue *astar_pq_create(int capacity) {
   AStarPriorityQueue *pq = malloc(sizeof(AStarPriorityQueue));
   pq->heap = malloc(capacity * sizeof(AStarPriorityQueueEntry));
-  pq->best_priority = malloc(capacity * sizeof(int));
-  for (int i = 0; i < capacity; i++) {
-    pq->best_priority[i] = INT_MAX;
-  }
   pq->size = 0;
   pq->capacity = capacity;
   return pq;
 }
 
 static void astar_pq_push(AStarPriorityQueue *pq, int vertex, int priority) {
-  if (priority >= pq->best_priority[vertex])
-    return;
-  pq->best_priority[vertex] = priority;
 
   if (pq->size >= pq->capacity) {
     pq->capacity *= 2;
@@ -540,7 +526,6 @@ static bool astar_pq_empty(AStarPriorityQueue *pq) { return pq->size == 0; }
 
 static void astar_pq_free(AStarPriorityQueue *pq) {
   free(pq->heap);
-  free(pq->best_priority);
   free(pq);
 }
 
@@ -559,6 +544,29 @@ static int astar_heuristic(MazeCell *a, MazeCell *b) {
 
 static int astar_idx(int y, int x, int width) { return y * width + x; }
 
+static MazeCell **maze_astar_reconstruct(Maze *maze, int *came_from,
+                                         int current_idx, int width,
+                                         int *out_length) {
+  int length = 0;
+  int cur = current_idx;
+  while (cur != -1) {
+    length++;
+    cur = came_from[cur];
+  }
+
+  MazeCell **result = malloc(length * sizeof(MazeCell *));
+  cur = current_idx;
+  for (int i = length - 1; i >= 0; i--) {
+    int y = cur / width;
+    int x = cur % width;
+    result[i] = &maze->cells[y][x];
+    cur = came_from[cur];
+  }
+
+  *out_length = length;
+  return result;
+}
+
 static MazeCell **maze_astar(Maze *maze, MazeCell *start, MazeCell *target,
                              int *out_length) {
   if (start == target) {
@@ -574,9 +582,11 @@ static MazeCell **maze_astar(Maze *maze, MazeCell *start, MazeCell *target,
 
   int *came_from = malloc(size * sizeof(int));
   int *g_score = malloc(size * sizeof(int));
+  int *best_f = malloc(size * sizeof(int));
   for (int i = 0; i < size; i++) {
     came_from[i] = -1;
     g_score[i] = INT_MAX;
+    best_f[i] = INT_MAX;
   }
 
   int start_idx = astar_idx(start->y, start->x, width);
@@ -585,34 +595,21 @@ static MazeCell **maze_astar(Maze *maze, MazeCell *start, MazeCell *target,
   AStarPriorityQueue *open_set = astar_pq_create(size);
 
   g_score[start_idx] = 0;
-  astar_pq_push(open_set, start_idx, astar_heuristic(start, target));
+  int f_start = astar_heuristic(start, target);
+  astar_pq_push(open_set, start_idx, f_start);
+  best_f[start_idx] = f_start;
 
   while (!astar_pq_empty(open_set)) {
     AStarPriorityQueueEntry entry = astar_pq_pop(open_set);
     int current_idx = entry.vertex;
 
     if (current_idx == target_idx) {
-
-      int length = 0;
-      int cur = current_idx;
-      while (cur != -1) {
-        length++;
-        cur = came_from[cur];
-      }
-
-      MazeCell **result = malloc(length * sizeof(MazeCell *));
-      cur = current_idx;
-      for (int i = length - 1; i >= 0; i--) {
-        int y = cur / width;
-        int x = cur % width;
-        result[i] = &maze->cells[y][x];
-        cur = came_from[cur];
-      }
-
-      *out_length = length;
+      MazeCell **result = maze_astar_reconstruct(maze, came_from, current_idx,
+                                                 width, out_length);
 
       free(came_from);
       free(g_score);
+      free(best_f);
       astar_pq_free(open_set);
 
       return result;
@@ -635,7 +632,11 @@ static MazeCell **maze_astar(Maze *maze, MazeCell *start, MazeCell *target,
         came_from[neighbor_idx] = current_idx;
         g_score[neighbor_idx] = tentative_g;
         int f_new = tentative_g + astar_heuristic(neighbor, target);
-        astar_pq_push(open_set, neighbor_idx, f_new);
+
+        if (f_new < best_f[neighbor_idx]) {
+          best_f[neighbor_idx] = f_new;
+          astar_pq_push(open_set, neighbor_idx, f_new);
+        }
       }
     }
   }
@@ -644,6 +645,7 @@ static MazeCell **maze_astar(Maze *maze, MazeCell *start, MazeCell *target,
 
   free(came_from);
   free(g_score);
+  free(best_f);
   astar_pq_free(open_set);
 
   return NULL;
@@ -651,17 +653,6 @@ static MazeCell **maze_astar(Maze *maze, MazeCell *start, MazeCell *target,
 
 void MazeAStar_prepare(Benchmark *self) {
   MazeAStarData *data = (MazeAStarData *)self->data;
-
-  data->width = (int)Helper_config_i64(self->name, "w");
-  data->height = (int)Helper_config_i64(self->name, "h");
-
-  if (data->width < 5)
-    data->width = 5;
-  if (data->height < 5)
-    data->height = 5;
-
-  data->maze = maze_create(data->width, data->height);
-  maze_update_neighbors(data->maze);
   maze_generate(data->maze);
   data->result_val = 0;
   data->path = NULL;
@@ -702,6 +693,20 @@ void MazeAStar_cleanup(Benchmark *self) {
 Benchmark *MazeAStar_create(void) {
   Benchmark *bench = Benchmark_create("Maze::AStar");
   MazeAStarData *data = calloc(1, sizeof(MazeAStarData));
+
+  data->width = (int)Helper_config_i64(bench->name, "w");
+  data->height = (int)Helper_config_i64(bench->name, "h");
+  if (data->width < 5)
+    data->width = 5;
+  if (data->height < 5)
+    data->height = 5;
+
+  data->maze = maze_create(data->width, data->height);
+  maze_update_neighbors(data->maze);
+  data->result_val = 0;
+  data->path = NULL;
+  data->path_length = 0;
+
   bench->data = data;
   bench->prepare = MazeAStar_prepare;
   bench->run = MazeAStar_run;

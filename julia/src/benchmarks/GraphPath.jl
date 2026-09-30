@@ -198,45 +198,37 @@ function a_star_shortest_path(graph::Graph, start::Int64, target::Int64)::Int32
         return 0
     end
 
+    n = graph.vertices
     INF = typemax(Int32)
-    g_score = fill(INF, graph.vertices)
-    f_score = fill(INF, graph.vertices)
-    closed = falses(graph.vertices)
+
+    g_score = fill(INF, n)
+    best_f = fill(INF, n)
 
     g_score[start+1] = 0
-    f_score[start+1] = heuristic(start, target)
+    f_start = heuristic(start, target)
+    best_f[start+1] = f_start
 
     open_set = BinaryMinHeap{Tuple{Int32,Int64}}()
-    in_open_set = falses(graph.vertices)
 
-    push!(open_set, (f_score[start+1], start))
-    in_open_set[start+1] = true
+    push!(open_set, (f_start, start))
 
     while !isempty(open_set)
         f, current = pop!(open_set)
-        in_open_set[current+1] = false
 
         if current == target
             return g_score[current+1]
         end
 
-        closed[current+1] = true
-
         for neighbor in graph.adj[current+1]
-            if closed[neighbor+1]
-                continue
-            end
-
             tentative_g = g_score[current+1] + 1
 
             if tentative_g < g_score[neighbor+1]
                 g_score[neighbor+1] = tentative_g
                 new_f = tentative_g + heuristic(Int64(neighbor), target)
-                f_score[neighbor+1] = new_f
 
-                if !in_open_set[neighbor+1]
+                if new_f < best_f[neighbor+1]
+                    best_f[neighbor+1] = new_f
                     push!(open_set, (new_f, Int64(neighbor)))
-                    in_open_set[neighbor+1] = true
                 end
             end
         end

@@ -9,6 +9,8 @@ import std.array;
 import std.range;
 import std.typecons;
 import std.container.dlist;
+import std.container.array : Array;
+import std.container.binaryheap : BinaryHeap;
 import std.math;
 
 enum CellKind
@@ -95,14 +97,6 @@ public:
         {
             for (int x = 0; x < width; x++)
             {
-                cells[y][x].neighbors.length = 0;
-            }
-        }
-
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
                 auto cell = cells[y][x];
 
                 if (x > 0 && y > 0 && x < width - 1 && y < height - 1)
@@ -116,7 +110,7 @@ public:
                     {
                         int i = Helper.nextInt(4);
                         int j = Helper.nextInt(4);
-                        if (i != j && i < cell.neighbors.length && j < cell.neighbors.length)
+                        if (i != j)
                         {
                             auto temp = cell.neighbors[i];
                             cell.neighbors[i] = cell.neighbors[j];
@@ -147,7 +141,6 @@ public:
 
     void dig(Cell startCell)
     {
-
         size_t stackCapacity = width * height;
         Cell[] stack = new Cell[](stackCapacity);
         size_t stackPtr = 0;
@@ -174,7 +167,6 @@ public:
             {
                 if (n.kind == CellKind.Wall)
                 {
-
                     if (stackPtr >= stackCapacity)
                     {
                         stackCapacity *= 2;
@@ -187,35 +179,25 @@ public:
         }
     }
 
-    void ensureOpenFinish(Cell startCell)
+    void ensureOpenFinish(Cell cell)
     {
+        cell.kind = CellKind.Space;
 
-        Cell[] stack = new Cell[](width * height);
-        int stackPtr = 0;
-        stack[stackPtr++] = startCell;
-
-        while (stackPtr > 0)
+        int walkable = 0;
+        foreach (n; cell.neighbors)
         {
-            auto cell = stack[--stackPtr];
+            if (n.isWalkable())
+                walkable++;
+        }
 
-            cell.kind = CellKind.Space;
+        if (walkable > 1)
+            return;
 
-            int walkable = 0;
-            foreach (n; cell.neighbors)
+        foreach (n; cell.neighbors)
+        {
+            if (n.kind == CellKind.Wall)
             {
-                if (n.isWalkable())
-                    walkable++;
-            }
-
-            if (walkable > 1)
-                continue;
-
-            foreach (n; cell.neighbors)
-            {
-                if (n.kind == CellKind.Wall)
-                {
-                    stack[stackPtr++] = n;
-                }
+                ensureOpenFinish(n);
             }
         }
     }
@@ -329,7 +311,6 @@ class MazeGenerator : Benchmark
 
     override void prepare()
     {
-
     }
 
     override void run(int iterationId)
@@ -451,93 +432,19 @@ public:
 class MazeAStar : Benchmark
 {
 private:
-    struct PriorityQueue
+
+    struct Entry
     {
-        struct Entry
-        {
-            int priority;
-            int vertex;
-        }
-
-        Entry[] heap;
-        int[] bestPriority;
-        int size;
-
-        this(int capacity)
-        {
-            heap.length = capacity;
-            bestPriority = new int[](capacity);
-            foreach (i; 0 .. capacity)
-            {
-                bestPriority[i] = int.max;
-            }
-            size = 0;
-        }
-
-        bool empty() const
-        {
-            return size == 0;
-        }
-
-        void push(int vertex, int priority)
-        {
-            if (priority >= bestPriority[vertex])
-                return;
-            bestPriority[vertex] = priority;
-
-            if (size >= heap.length)
-            {
-                heap.length = heap.length * 2;
-            }
-
-            int i = size++;
-            while (i > 0)
-            {
-                int parent = (i - 1) / 2;
-                if (heap[parent].priority <= priority)
-                    break;
-                heap[i] = heap[parent];
-                i = parent;
-            }
-            heap[i] = Entry(priority, vertex);
-        }
-
-        Entry pop()
-        {
-            Entry min = heap[0];
-            size--;
-
-            if (size > 0)
-            {
-                Entry last = heap[size];
-                int i = 0;
-                while (true)
-                {
-                    int left = 2 * i + 1;
-                    int right = 2 * i + 2;
-                    int smallest = i;
-
-                    if (left < size && heap[left].priority < heap[smallest].priority)
-                    {
-                        smallest = left;
-                    }
-                    if (right < size && heap[right].priority < heap[smallest].priority)
-                    {
-                        smallest = right;
-                    }
-
-                    if (smallest == i)
-                        break;
-
-                    heap[i] = heap[smallest];
-                    i = smallest;
-                }
-                heap[i] = last;
-            }
-
-            return min;
-        }
+        int priority;
+        int vertex;
     }
+
+    static bool entryLess(Entry a, Entry b)
+    {
+        return a.priority > b.priority;
+    }
+
+    alias AStarQueue = BinaryHeap!(Array!Entry, entryLess);
 
     uint resultVal;
     int width;
@@ -564,23 +471,29 @@ private:
 
         int[] cameFrom = new int[](size);
         int[] gScore = new int[](size);
+        int[] bestF = new int[](size);
         foreach (i; 0 .. size)
         {
             cameFrom[i] = -1;
             gScore[i] = int.max;
+            bestF[i] = int.max;
         }
 
         int startIdx = idx(start.y, start.x);
         int targetIdx = idx(target.y, target.x);
 
-        PriorityQueue openSet = PriorityQueue(size);
+        AStarQueue openSet;
 
         gScore[startIdx] = 0;
-        openSet.push(startIdx, heuristic(start, target));
+        int fStart = heuristic(start, target);
+        openSet.insert(Entry(fStart, startIdx));
+        bestF[startIdx] = fStart;
 
         while (!openSet.empty())
         {
-            auto entry = openSet.pop();
+            auto entry = openSet.front();
+            openSet.removeFront();
+
             int currentIdx = entry.vertex;
 
             if (currentIdx == targetIdx)
@@ -616,7 +529,12 @@ private:
                     cameFrom[neighborIdx] = currentIdx;
                     gScore[neighborIdx] = tentativeG;
                     int fNew = tentativeG + heuristic(neighbor, target);
-                    openSet.push(neighborIdx, fNew);
+
+                    if (fNew < bestF[neighborIdx])
+                    {
+                        bestF[neighborIdx] = fNew;
+                        openSet.insert(Entry(fNew, neighborIdx));
+                    }
                 }
             }
         }

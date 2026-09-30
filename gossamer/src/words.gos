@@ -1,0 +1,56 @@
+use bench::Bench
+use config::Config
+use helper
+
+pub struct Words {
+    words: i64
+    word_len: i64
+    text: String
+    result: u32
+    rng: helper::Rng
+}
+
+impl Words {
+    pub fn new(cfg: Config) -> Words {
+        Words {
+            words: cfg.int("Etc::Words", "words")
+            word_len: cfg.int("Etc::Words", "word_len")
+            text: ""
+            result: 0
+            rng: helper::Rng::new()
+        }
+    }
+}
+
+impl Bench for Words {
+    fn prepare(&mut self) {
+        let alphabet = "abcdefghijklmnopqrstuvwxyz"
+        let mut text = String::with_capacity(self.words * (self.word_len + 1))
+
+        for i in 0..self.words {
+            let length = self.rng.next_int(self.word_len) + self.rng.next_int(3) + 3
+            for _ in 0..length {
+                text.push_char(alphabet[self.rng.next_int(26)])
+            }
+            if i < self.words - 1 { text.push_char(' ') }
+        }
+
+        self.text = text
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        let mut frequencies: Map<String, i64> = Map::new()
+        for word in self.text.split_whitespace() { frequencies.inc(word) }
+
+        let mut max_word = ""
+        let mut max_count = 0
+        if let Some(top) = frequencies.max_by_key(|entry| entry.1) {
+            max_word = top.0
+            max_count = top.1
+        }
+
+        self.result +%= max_count as u32 +% helper::checksum_str(max_word) +% frequencies.len() as u32
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}

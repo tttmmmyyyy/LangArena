@@ -79,38 +79,28 @@ type BWTEncode =
                 let mutable k = 1
 
                 while k < n do
-
-                    let saCopy = Array.copy sa
+                    let pairs = Array.init n (fun i -> (rank.[i], rank.[(i + k) % n]))
 
                     System.Array.Sort(
                         sa,
                         { new System.Collections.Generic.IComparer<int> with
                             member _.Compare(a, b) =
-                                let ra = rank.[a]
-                                let rb = rank.[b]
+                                let pa = pairs.[a]
+                                let pb = pairs.[b]
 
-                                if ra <> rb then
-                                    compare ra rb
+                                if fst pa <> fst pb then
+                                    compare (fst pa) (fst pb)
                                 else
-                                    compare rank.[(a + k) % n] rank.[(b + k) % n] }
+                                    compare (snd pa) (snd pb) }
                     )
 
                     let newRank = Array.zeroCreate<int> n
                     newRank.[sa.[0]] <- 0
 
                     for i = 1 to n - 1 do
-                        let prevIdx = sa.[i - 1]
-                        let currIdx = sa.[i]
-
-                        newRank.[currIdx] <-
-                            newRank.[prevIdx]
-                            + (if
-                                   rank.[prevIdx] <> rank.[currIdx]
-                                   || rank.[(prevIdx + k) % n] <> rank.[(currIdx + k) % n]
-                               then
-                                   1
-                               else
-                                   0)
+                        let prevPair = pairs.[sa.[i - 1]]
+                        let currPair = pairs.[sa.[i]]
+                        newRank.[sa.[i]] <- newRank.[sa.[i - 1]] + (if prevPair <> currPair then 1 else 0)
 
                     System.Array.Copy(newRank, rank, n)
                     k <- k * 2
@@ -656,9 +646,11 @@ type ArithDecode() =
             let range = high - low + 1UL
             let scaled = ((value - low + 1UL) * uint64 total - 1UL) / range
 
-            let mutable symbol = 0
+            let mutable symbol = Array.BinarySearch(highTable, 0, 256, int scaled)
 
-            while symbol < 255 && uint64 highTable.[symbol] <= scaled do
+            if symbol < 0 then
+                symbol <- ~~~symbol
+            else
                 symbol <- symbol + 1
 
             result.[j] <- byte symbol
@@ -808,7 +800,6 @@ type LZWDecode() =
             let dict = System.Collections.Generic.List<string>()
 
             for i = 0 to 255 do
-
                 dict.Add(string (char i))
 
             let result = System.Collections.Generic.List<byte>()
@@ -826,34 +817,36 @@ type LZWDecode() =
                 result.Add(byte c)
 
             let mutable nextCode = 256
+            let mutable success = true
 
-            while pos < data.Length do
+            while pos < data.Length && success do
                 let high = int data.[pos]
                 let low = int data.[pos + 1]
                 let newCode = (high <<< 8) ||| low
                 pos <- pos + 2
 
-                let newStr =
-                    if newCode < dict.Count then
-                        dict.[newCode]
-                    elif newCode = nextCode then
+                if newCode < dict.Count then
+                    let newStr = dict.[newCode]
 
-                        oldStr + string (oldStr.[0])
-                    else
-                        failwithf
-                            "LZW decode error: invalid code %d (nextCode=%d, dict.Count=%d)"
-                            newCode
-                            nextCode
-                            dict.Count
+                    for c in newStr do
+                        result.Add(byte c)
 
-                for c in newStr do
-                    result.Add(byte c)
+                    dict.Add(oldStr + string (newStr.[0]))
+                    nextCode <- nextCode + 1
+                    oldStr <- newStr
+                elif newCode = nextCode then
+                    let newStr = oldStr + string (oldStr.[0])
 
-                dict.Add(oldStr + string (newStr.[0]))
-                nextCode <- nextCode + 1
-                oldStr <- newStr
+                    for c in newStr do
+                        result.Add(byte c)
 
-            result.ToArray()
+                    dict.Add(newStr)
+                    nextCode <- nextCode + 1
+                    oldStr <- newStr
+                else
+                    success <- false
+
+            if success then result.ToArray() else [||]
 
     override this.Name = "Compress::LZWDecode"
 

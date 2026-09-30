@@ -43,7 +43,7 @@ public:
     void update_neighbors();
     void reset();
     void dig(Cell *start_cell);
-    void ensure_open_finish(Cell *start_cell);
+    void ensure_open_finish(Cell *cell);
     void generate();
 
     Cell *middle_cell();

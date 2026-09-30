@@ -18,8 +18,8 @@ type
   GraphPathAStar* = ref object of GraphPathBenchmark
 
   AStarItem* = object
-    vertex: int
     priority: int
+    vertex: int
 
 proc `<`*(a, b: AStarItem): bool =
   if a.priority != b.priority:
@@ -150,46 +150,39 @@ proc aStarShortestPath(g: Graph, start, target: int): int =
   if start == target:
     return 0
 
+  let n = g.vertices
   let INF = high(int)
-  var gScore = newSeq[int](g.vertices)
-  var fScore = newSeq[int](g.vertices)
-  var closed = newSeq[bool](g.vertices)
 
-  for i in 0..<g.vertices:
+  var gScore = newSeq[int](n)
+  var bestF = newSeq[int](n)
+
+  for i in 0..<n:
     gScore[i] = INF
-    fScore[i] = INF
+    bestF[i] = INF
 
   gScore[start] = 0
-  fScore[start] = heuristic(start, target)
+  let fStart = heuristic(start, target)
+  bestF[start] = fStart
 
   var openSet = initHeapQueue[AStarItem]()
-  var inOpenSet = newSeq[bool](g.vertices)
-
-  openSet.push(AStarItem(vertex: start, priority: fScore[start]))
-  inOpenSet[start] = true
+  openSet.push(AStarItem(vertex: start, priority: fStart))
 
   while openSet.len > 0:
     let current = openSet.pop()
-    inOpenSet[current.vertex] = false
 
     if current.vertex == target:
       return gScore[current.vertex]
 
-    closed[current.vertex] = true
-
     for neighbor in g.adj[current.vertex]:
-      if closed[neighbor]:
-        continue
-
       let tentativeG = gScore[current.vertex] + 1
 
       if tentativeG < gScore[neighbor]:
         gScore[neighbor] = tentativeG
-        fScore[neighbor] = tentativeG + heuristic(neighbor, target)
+        let fNew = tentativeG + heuristic(neighbor, target)
 
-        if not inOpenSet[neighbor]:
-          openSet.push(AStarItem(vertex: neighbor, priority: fScore[neighbor]))
-          inOpenSet[neighbor] = true
+        if fNew < bestF[neighbor]:
+          bestF[neighbor] = fNew
+          openSet.push(AStarItem(vertex: neighbor, priority: fNew))
 
   -1
 

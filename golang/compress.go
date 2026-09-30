@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"sort"
 )
 
@@ -49,6 +50,11 @@ func (b *BWTEncode) Checksum() uint32 {
 	return b.resultVal
 }
 
+type BWTPair struct {
+	First  int
+	Second int
+}
+
 func (b *BWTEncode) bwtTransform(input []byte) BWTResult {
 	n := len(input)
 	if n == 0 {
@@ -93,14 +99,18 @@ func (b *BWTEncode) bwtTransform(input []byte) BWTResult {
 
 		k := 1
 		for k < n {
+			pairs := make([]BWTPair, n)
+			for i := 0; i < n; i++ {
+				pairs[i] = BWTPair{rank[i], rank[(i+k)%n]}
+			}
 
 			sort.Slice(sa, func(i, j int) bool {
 				a, b := sa[i], sa[j]
-				ra, rb := rank[a], rank[b]
-				if ra != rb {
-					return ra < rb
+				pa, pb := pairs[a], pairs[b]
+				if pa.First != pb.First {
+					return pa.First < pb.First
 				}
-				return rank[(a+k)%n] < rank[(b+k)%n]
+				return pa.Second < pb.Second
 			})
 
 			newRank := make([]int, n)
@@ -108,8 +118,7 @@ func (b *BWTEncode) bwtTransform(input []byte) BWTResult {
 			for i := 1; i < n; i++ {
 				prevIdx := sa[i-1]
 				currIdx := sa[i]
-				if rank[prevIdx] == rank[currIdx] &&
-					rank[(prevIdx+k)%n] == rank[(currIdx+k)%n] {
+				if pairs[prevIdx] == pairs[currIdx] {
 					newRank[currIdx] = newRank[prevIdx]
 				} else {
 					newRank[currIdx] = newRank[prevIdx] + 1
@@ -268,13 +277,9 @@ func buildHuffmanTree(frequencies *[256]int) *HuffmanNode {
 		}
 	}
 
-	for i := 0; i < len(nodes)-1; i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			if nodes[i].frequency > nodes[j].frequency {
-				nodes[i], nodes[j] = nodes[j], nodes[i]
-			}
-		}
-	}
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].frequency < nodes[j].frequency
+	})
 
 	if len(nodes) == 1 {
 		node := nodes[0]
@@ -305,15 +310,16 @@ func buildHuffmanTree(frequencies *[256]int) *HuffmanNode {
 			right:     right,
 		}
 
-		pos := 0
-		for pos < len(nodes) && nodes[pos].frequency < parent.frequency {
-			pos++
-		}
+		pos := sort.Search(len(nodes), func(i int) bool {
+			return nodes[i].frequency >= parent.frequency
+		})
 
 		if pos == len(nodes) {
 			nodes = append(nodes, parent)
 		} else {
-			nodes = append(nodes[:pos], append([]*HuffmanNode{parent}, nodes[pos:]...)...)
+			nodes = append(nodes, nil)
+			copy(nodes[pos+1:], nodes[pos:])
+			nodes[pos] = parent
 		}
 	}
 
@@ -753,11 +759,10 @@ func (a *ArithDecode) arithDecode(encoded ArithEncodedResult) []byte {
 		range_ := high - low + 1
 		scaled := ((value-low+1)*uint64(total) - 1) / range_
 
-		symbol := 0
-		for symbol < 255 && uint64(highTable[symbol]) <= scaled {
+		symbol, found := slices.BinarySearch(highTable[:], int(scaled))
+		if found {
 			symbol++
 		}
-
 		result[j] = byte(symbol)
 
 		high = low + (range_ * uint64(highTable[symbol]) / uint64(total)) - 1
@@ -928,7 +933,7 @@ func (l *LZWDecode) lzwDecode(encoded LZWResult) []byte {
 
 			newStr = oldStr + string(oldStr[0])
 		} else {
-			panic("LZW decode error")
+			return []byte{}
 		}
 
 		result = append(result, newStr...)

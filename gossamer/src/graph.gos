@@ -1,0 +1,226 @@
+use bench::Bench
+use config::Config
+use helper
+
+const I32_MAX: i64 = 2_147_483_647
+
+pub struct Graph {
+    pub vertices: i64
+    pub jumps: i64
+    pub jump_len: i64
+    pub adj: Vec<Vec<i64>>
+}
+
+impl Graph {
+    pub fn new(vertices: i64, jumps: i64, jump_len: i64) -> Graph {
+        let mut adj: Vec<Vec<i64>> = Vec::with_capacity(vertices)
+        for _ in 0..vertices { adj.push(#[]) }
+
+        Graph { vertices: vertices, jumps: jumps, jump_len: jump_len, adj: adj }
+    }
+
+    pub fn add_edge(&mut self, u: i64, v: i64) {
+        if u < self.adj.len() && v < self.adj.len() {
+            self.adj[u].push(v)
+            self.adj[v].push(u)
+        }
+    }
+
+    pub fn generate_random(&mut self, rng: &mut helper::Rng) {
+        for i in 1..self.vertices { self.add_edge(i, i - 1) }
+
+        for v in 0..self.vertices {
+            let num_jumps = rng.next_int(self.jumps)
+            for _ in 0..num_jumps {
+                let offset = rng.next_int(self.jump_len) - self.jump_len / 2
+                let u = v + offset
+
+                if u >= 0 && u < self.vertices && u != v { self.add_edge(v, u) }
+            }
+        }
+    }
+}
+
+struct GraphPathBenchmark {
+    graph: Graph
+    result: u32
+    prepared: bool
+    vertices: i64
+    jumps: i64
+    jump_len: i64
+    rng: helper::Rng
+}
+
+impl GraphPathBenchmark {
+    fn new_base(cfg: Config, class_name: String) -> GraphPathBenchmark {
+        GraphPathBenchmark {
+            graph: Graph::new(0, 0, 0)
+            result: 0
+            prepared: false
+            vertices: cfg.int(class_name, "vertices")
+            jumps: cfg.int(class_name, "jumps")
+            jump_len: cfg.int(class_name, "jump_len")
+            rng: helper::Rng::new()
+        }
+    }
+
+    fn prepare(&mut self) {
+        if !self.prepared {
+            let mut graph = Graph::new(self.vertices, self.jumps, self.jump_len)
+            graph.generate_random(&mut self.rng)
+            self.graph = graph
+
+            self.prepared = true
+        }
+    }
+}
+
+pub struct GraphBfs {
+    base: GraphPathBenchmark
+}
+
+impl GraphBfs {
+    pub fn new(cfg: Config) -> GraphBfs { GraphBfs { base: GraphPathBenchmark::new_base(cfg, "Graph::BFS") } }
+
+    fn bfs_shortest_path(&self, start: i64, target: i64) -> i64 {
+        if start == target { return 0 }
+
+        let vertices = self.base.graph.vertices
+        let mut visited: Vec<bool> = #[false; vertices]
+        let mut queue = Deque::new()
+
+        visited[start] = true
+        queue.push_back((start, 0))
+
+        while let Some((v, dist)) = queue.pop_front() {
+            for neighbor in self.base.graph.adj[v] {
+                if neighbor == target { return dist + 1 }
+
+                if !visited[neighbor] {
+                    visited[neighbor] = true
+                    queue.push_back((neighbor, dist + 1))
+                }
+            }
+        }
+
+        -1
+    }
+}
+
+impl Bench for GraphBfs {
+    fn prepare(&mut self) { self.base.prepare() }
+
+    fn run(&mut self, iteration_id: i64) {
+        let total_length = self.bfs_shortest_path(0, self.base.graph.vertices - 1)
+        self.base.result +%= total_length as u32
+    }
+
+    fn checksum(&self) -> u32 { self.base.result }
+}
+
+pub struct GraphDfs {
+    base: GraphPathBenchmark
+}
+
+impl GraphDfs {
+    pub fn new(cfg: Config) -> GraphDfs { GraphDfs { base: GraphPathBenchmark::new_base(cfg, "Graph::DFS") } }
+
+    fn dfs_find_path(&self, start: i64, target: i64) -> i64 {
+        if start == target { return 0 }
+
+        let vertices = self.base.graph.vertices
+        let mut visited: Vec<bool> = #[false; vertices]
+        let mut stack: Vec<(i64, i64)> = #[(start, 0)]
+        let mut best_path = I32_MAX
+
+        while let Some((v, dist)) = stack.pop() {
+            if visited[v] || dist >= best_path { continue }
+            visited[v] = true
+
+            for neighbor in self.base.graph.adj[v] {
+                if neighbor == target {
+                    if dist + 1 < best_path { best_path = dist + 1 }
+                } else if !visited[neighbor] {
+                    stack.push((neighbor, dist + 1))
+                }
+            }
+        }
+
+        if best_path == I32_MAX { -1 } else { best_path }
+    }
+}
+
+impl Bench for GraphDfs {
+    fn prepare(&mut self) { self.base.prepare() }
+
+    fn run(&mut self, iteration_id: i64) {
+        let total_length = self.dfs_find_path(0, self.base.graph.vertices - 1)
+        self.base.result +%= total_length as u32
+    }
+
+    fn checksum(&self) -> u32 { self.base.result }
+}
+
+struct Node {
+    f_score: i64
+    vertex: i64
+}
+
+pub struct GraphAStar {
+    base: GraphPathBenchmark
+}
+
+impl GraphAStar {
+    pub fn new(cfg: Config) -> GraphAStar {
+        GraphAStar { base: GraphPathBenchmark::new_base(cfg, "Graph::AStar") }
+    }
+
+    fn heuristic(&self, v: i64, target: i64) -> i64 { target - v }
+
+    fn a_star_shortest_path(&self, start: i64, target: i64) -> i64 {
+        if start == target { return 0 }
+
+        let vertices = self.base.graph.vertices
+
+        let mut g_score: Vec<i64> = #[I32_MAX; vertices]
+        let mut best_f: Vec<i64> = #[I32_MAX; vertices]
+
+        g_score[start] = 0
+        let f_start = self.heuristic(start, target)
+        best_f[start] = f_start
+
+        let mut open_set: MinHeap<Node> = MinHeap::new()
+        open_set.push(Node { f_score: f_start, vertex: start })
+
+        while let Some(current) = open_set.pop() {
+            if current.vertex == target { return g_score[current.vertex] }
+
+            for neighbor in self.base.graph.adj[current.vertex] {
+                let tentative_g = g_score[current.vertex] + 1
+
+                if tentative_g < g_score[neighbor] {
+                    g_score[neighbor] = tentative_g
+                    let f_new = tentative_g + self.heuristic(neighbor, target)
+
+                    if f_new < best_f[neighbor] {
+                        best_f[neighbor] = f_new
+                        open_set.push(Node { f_score: f_new, vertex: neighbor })
+                    }
+                }
+            }
+        }
+
+        -1
+    }
+}
+
+impl Bench for GraphAStar {
+    fn prepare(&mut self) { self.base.prepare() }
+
+    fn run(&mut self, iteration_id: i64) {
+        let total_length = self.a_star_shortest_path(0, self.base.graph.vertices - 1)
+        self.base.result +%= total_length as u32
+    }
+
+    fn checksum(&self) -> u32 { self.base.result }
+}

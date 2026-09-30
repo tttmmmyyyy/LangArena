@@ -1,3 +1,4 @@
+import Collections
 import Foundation
 
 class GraphPathBenchmark: BenchmarkProtocol {
@@ -153,6 +154,22 @@ final class GraphPathDFS: GraphPathBenchmark {
   }
 }
 
+struct GraphAStarEntry: Comparable {
+  let priority: Int
+  let vertex: Int
+
+  static func < (lhs: GraphAStarEntry, rhs: GraphAStarEntry) -> Bool {
+    if lhs.priority != rhs.priority {
+      return lhs.priority < rhs.priority
+    }
+    return lhs.vertex < rhs.vertex
+  }
+
+  static func == (lhs: GraphAStarEntry, rhs: GraphAStarEntry) -> Bool {
+    lhs.priority == rhs.priority && lhs.vertex == rhs.vertex
+  }
+}
+
 final class GraphPathAStar: GraphPathBenchmark {
   override init() {
     super.init()
@@ -162,112 +179,38 @@ final class GraphPathAStar: GraphPathBenchmark {
     return target - v
   }
 
-  private struct PriorityQueue {
-    private var vertices: [Int]
-    private var priorities: [Int]
-    private var size: Int
-
-    init(capacity: Int) {
-      vertices = [Int](repeating: 0, count: capacity)
-      priorities = [Int](repeating: 0, count: capacity)
-      size = 0
-    }
-
-    mutating func push(vertex: Int, priority: Int) {
-      if size >= vertices.count {
-        vertices.append(0)
-        priorities.append(0)
-      }
-
-      var i = size
-      size += 1
-      vertices[i] = vertex
-      priorities[i] = priority
-
-      while i > 0 {
-        let parent = (i - 1) / 2
-        if priorities[parent] <= priorities[i] {
-          break
-        }
-        vertices.swapAt(i, parent)
-        priorities.swapAt(i, parent)
-        i = parent
-      }
-    }
-
-    mutating func pop() -> Int? {
-      if size == 0 { return nil }
-
-      let result = vertices[0]
-      size -= 1
-
-      if size > 0 {
-        vertices[0] = vertices[size]
-        priorities[0] = priorities[size]
-
-        var i = 0
-        while true {
-          let left = 2 * i + 1
-          let right = 2 * i + 2
-          var smallest = i
-
-          if left < size && priorities[left] < priorities[smallest] {
-            smallest = left
-          }
-          if right < size && priorities[right] < priorities[smallest] {
-            smallest = right
-          }
-          if smallest == i {
-            break
-          }
-          vertices.swapAt(i, smallest)
-          priorities.swapAt(i, smallest)
-          i = smallest
-        }
-      }
-
-      return result
-    }
-
-    var isEmpty: Bool { return size == 0 }
-  }
-
   private func aStarShortestPath(_ start: Int, _ target: Int) -> Int {
     if start == target { return 0 }
 
-    let vertices = graph.vertices
-    var gScore = [Int](repeating: Int.max, count: vertices)
-    var closed = [Bool](repeating: false, count: vertices)
+    let n = graph.vertices
+    var gScore = [Int](repeating: Int.max, count: n)
+    var bestF = [Int](repeating: Int.max, count: n)
 
     gScore[start] = 0
+    let fStart = heuristic(start, target)
+    bestF[start] = fStart
 
-    var openSet = PriorityQueue(capacity: vertices)
-    var inOpenSet = [Bool](repeating: false, count: vertices)
+    var openSet = Heap<GraphAStarEntry>(minimumCapacity: n)
+    openSet.insert(GraphAStarEntry(priority: fStart, vertex: start))
 
-    openSet.push(vertex: start, priority: heuristic(start, target))
-    inOpenSet[start] = true
-
-    while let current = openSet.pop() {
-      inOpenSet[current] = false
+    while !openSet.isEmpty {
+      guard let entry = openSet.popMin() else { break }
+      let current = entry.vertex
 
       if current == target {
         return gScore[current]
       }
 
-      closed[current] = true
-
       for neighbor in graph.adj[current] {
-        if closed[neighbor] { continue }
-
         let tentativeG = gScore[current] + 1
 
         if tentativeG < gScore[neighbor] {
           gScore[neighbor] = tentativeG
-          let f = tentativeG + heuristic(neighbor, target)
+          let fNew = tentativeG + heuristic(neighbor, target)
 
-          if !inOpenSet[neighbor] {
-            openSet.push(vertex: neighbor, priority: f)
-            inOpenSet[neighbor] = true
+          if fNew < bestF[neighbor] {
+            bestF[neighbor] = fNew
+            openSet.insert(GraphAStarEntry(priority: fNew, vertex: neighbor))
           }
         }
       }

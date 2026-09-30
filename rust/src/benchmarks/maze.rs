@@ -84,23 +84,19 @@ impl Maze {
             for x in 0..self.width {
                 if x == 0 || y == 0 || x == self.width - 1 || y == self.height - 1 {
                     self.cells[y][x].kind = CellKind::Border;
-                }
-            }
-        }
+                } else {
+                    let mut neighbors = [(y - 1, x), (y + 1, x), (y, x + 1), (y, x - 1)];
 
-        for y in 1..self.height - 1 {
-            for x in 1..self.width - 1 {
-                let mut neighbors = [(y - 1, x), (y + 1, x), (y, x + 1), (y, x - 1)];
-
-                for _ in 0..4 {
-                    let i = helper::next_int(4) as usize;
-                    let j = helper::next_int(4) as usize;
-                    if i != j {
-                        neighbors.swap(i, j);
+                    for _ in 0..4 {
+                        let i = helper::next_int(4) as usize;
+                        let j = helper::next_int(4) as usize;
+                        if i != j {
+                            neighbors.swap(i, j);
+                        }
                     }
-                }
 
-                self.cells[y][x].neighbors = neighbors;
+                    self.cells[y][x].neighbors = neighbors;
+                }
             }
         }
 
@@ -119,7 +115,7 @@ impl Maze {
     }
 
     fn dig(&mut self, start: (usize, usize)) {
-        let mut stack = Vec::new();
+        let mut stack = Vec::with_capacity(self.width * self.height);
         stack.push(start);
 
         while let Some((y, x)) = stack.pop() {
@@ -203,24 +199,6 @@ impl Maze {
             }
         }
         hasher
-    }
-
-    #[allow(dead_code)]
-    pub fn print_to_console(&self) {
-        for row in &self.cells {
-            for cell in row {
-                match cell.kind {
-                    CellKind::Space => print!(" "),
-                    CellKind::Wall => print!("\x1b[34m#\x1b[0m"),
-                    CellKind::Border => print!("\x1b[31mO\x1b[0m"),
-                    CellKind::Start => print!("\x1b[32m>\x1b[0m"),
-                    CellKind::Finish => print!("\x1b[32m<\x1b[0m"),
-                    CellKind::Path => print!("\x1b[33m.\x1b[0m"),
-                }
-            }
-            println!();
-        }
-        println!();
     }
 
     pub fn get_start(&self) -> (usize, usize) {
@@ -410,24 +388,16 @@ impl MazeAStar {
 
         let mut came_from = vec![-1i32; size];
         let mut g_score = vec![i32::MAX; size];
-        let mut f_score = vec![i32::MAX; size];
+        let mut best_f = vec![i32::MAX; size];
 
         let mut open_set = BinaryHeap::new();
 
-        let mut in_open = vec![false; size];
-
         g_score[start_idx] = 0;
-        f_score[start_idx] = self.heuristic(start, target);
-        open_set.push(Reverse((f_score[start_idx], start_idx)));
-        in_open[start_idx] = true;
+        let f_start = self.heuristic(start, target);
+        open_set.push(Reverse((f_start, start_idx)));
+        best_f[start_idx] = f_start;
 
         while let Some(Reverse((_, current_idx))) = open_set.pop() {
-            in_open[current_idx] = false;
-
-            if g_score[current_idx] == i32::MAX {
-                continue;
-            }
-
             if current_idx == target_idx {
                 let mut path = Vec::new();
                 let mut cur = current_idx as i32;
@@ -456,13 +426,11 @@ impl MazeAStar {
                 if tentative_g < g_score[neighbor_idx] {
                     came_from[neighbor_idx] = current_idx as i32;
                     g_score[neighbor_idx] = tentative_g;
-                    f_score[neighbor_idx] = tentative_g + self.heuristic((ny, nx), target);
+                    let f_new = tentative_g + self.heuristic((ny, nx), target);
 
-                    if !in_open[neighbor_idx] {
-                        open_set.push(Reverse((f_score[neighbor_idx], neighbor_idx)));
-                        in_open[neighbor_idx] = true;
-                    } else {
-                        open_set.push(Reverse((f_score[neighbor_idx], neighbor_idx)));
+                    if f_new < best_f[neighbor_idx] {
+                        best_f[neighbor_idx] = f_new;
+                        open_set.push(Reverse((f_new, neighbor_idx)));
                     }
                 }
             }

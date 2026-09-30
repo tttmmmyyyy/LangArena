@@ -1,0 +1,156 @@
+use std::regex
+use bench::Bench
+use config::Config
+use helper
+
+const LOREM: String = "Lorem {ipsum} dolor {sit} amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore {et} dolore magna aliqua. "
+
+const FIRST_NAMES: [String; 8] = ["John", "Jane", "Bob", "Alice", "Charlie", "Diana", "Sarah", "Mike"]
+
+const LAST_NAMES: [String; 8] = [
+    "Smith", "Johnson", "Brown", "Taylor", "Wilson", "Davis", "Miller", "Jones"
+]
+
+const CITIES: [String; 6] = [
+    "New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "San Francisco"
+]
+
+struct Document {
+    text: String
+    vars: Map<String, String>
+}
+
+fn empty_document() -> Document { Document { text: "", vars: Map::new() } }
+
+fn build_document(count: i64, vars: &mut Map<String, String>) -> String {
+    let mut text = String::new()
+    vars.clear()
+
+    text.push_str("<html><body>")
+    text.push_str("<h1>{{TITLE}}</h1>")
+    let _ = vars.insert("TITLE", "Template title")
+    text.push_str("<p>")
+    text.push_str(LOREM)
+    text.push_str("</p>")
+    text.push_str("<table>")
+
+    for i in 0..count {
+        if i % 3 == 0 { text.push_str("<!-- {comment} -->") }
+        text.push_str("<tr>")
+        text.push_str(format("<td>{{{{ FIRST_NAME{} }}}}</td>", i))
+        text.push_str(format("<td>{{{{LAST_NAME{}}}}}</td>", i))
+        text.push_str(format("<td>{{{{  CITY{}  }}}}</td>", i))
+
+        let _ = vars.insert(format("FIRST_NAME{}", i), FIRST_NAMES[i % FIRST_NAMES.len()])
+        let _ = vars.insert(format("LAST_NAME{}", i), LAST_NAMES[i % LAST_NAMES.len()])
+        let _ = vars.insert(format("CITY{}", i), CITIES[i % CITIES.len()])
+
+        text.push_str(format("<td>{{balance: {}}}</td>", i % 100))
+        text.push_str("</tr>\n")
+    }
+
+    text.push_str("</table>")
+    text.push_str("</body></html>")
+    text
+}
+
+pub struct TemplateRegex {
+    count: i64
+    placeholder: regex::Pattern
+    doc: Document
+    rendered: String
+    result: u32
+}
+
+impl TemplateRegex {
+    pub fn new(cfg: Config) -> TemplateRegex {
+        TemplateRegex {
+            count: cfg.int("Template::Regex", "count")
+            placeholder: regex::compile("\\{\\{(.*?)\\}\\}").unwrap()
+            doc: empty_document()
+            rendered: ""
+            result: 0
+        }
+    }
+}
+
+impl Bench for TemplateRegex {
+    fn prepare(&mut self) {
+        self.doc.text = build_document(self.count, &mut self.doc.vars)
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        let mut rendered = String::with_capacity(self.doc.text.byte_len())
+        let mut cursor = 0
+
+        for (start, end, matched) in self.placeholder.find_all(self.doc.text) {
+            rendered.push_str(self.doc.text.substring(cursor, start))
+            let key = matched.substring(2, matched.byte_len() - 2).trim()
+            rendered.push_str(self.doc.vars.get_or(key, ""))
+            cursor = end
+        }
+        rendered.push_str(self.doc.text.substring(cursor, self.doc.text.byte_len()))
+
+        self.rendered = rendered
+        self.result +%= self.rendered.byte_len() as u32
+    }
+
+    fn checksum(&self) -> u32 {
+        self.result +% helper::checksum_str(self.rendered)
+    }
+}
+
+pub struct TemplateParse {
+    count: i64
+    doc: Document
+    rendered: String
+    result: u32
+}
+
+impl TemplateParse {
+    pub fn new(cfg: Config) -> TemplateParse {
+        TemplateParse {
+            count: cfg.int("Template::Parse", "count")
+            doc: empty_document()
+            rendered: ""
+            result: 0
+        }
+    }
+}
+
+impl Bench for TemplateParse {
+    fn prepare(&mut self) {
+        self.doc.text = build_document(self.count, &mut self.doc.vars)
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        let bytes = self.doc.text.as_bytes()
+        let len = bytes.len()
+        let mut rendered = String::with_capacity(len + len / 2)
+        let mut i = 0
+
+        while i < len {
+            if i + 1 < len && bytes[i] == b'{' && bytes[i + 1] == b'{' {
+                let mut j = i + 2
+                while j + 1 < len && !(bytes[j] == b'}' && bytes[j + 1] == b'}') { j += 1 }
+
+                if j + 1 < len {
+                    let key = self.doc.text.substring(i + 2, j).trim()
+                    rendered.push_str(self.doc.vars.get_or(key, ""))
+                    i = j + 2
+                    continue
+                }
+            }
+
+            rendered.push_char(bytes[i] as char)
+            i += 1
+        }
+
+        self.rendered = rendered
+        self.result +%= self.rendered.byte_len() as u32
+    }
+
+    fn checksum(&self) -> u32 {
+        self.result +% helper::checksum_str(self.rendered)
+    }
+}

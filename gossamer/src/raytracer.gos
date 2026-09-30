@@ -1,0 +1,136 @@
+use std::math
+use bench::Bench
+use config::Config
+
+struct Vector { x: f64, y: f64, z: f64 }
+
+impl Vector {
+    fn scale(&self, s: f64) -> Vector { Vector { x: self.x * s, y: self.y * s, z: self.z * s } }
+
+    fn add(&self, other: Vector) -> Vector {
+        Vector { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z }
+    }
+
+    fn sub(&self, other: Vector) -> Vector {
+        Vector { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z }
+    }
+
+    fn dot(&self, other: Vector) -> f64 {
+        self.x * other.x + self.y * other.y + self.z * other.z
+    }
+
+    fn normalize(&self) -> Vector { self.scale(1.0 / math::sqrt(self.dot(self))) }
+}
+
+struct Color { r: f64, g: f64, b: f64 }
+
+impl Color {
+    fn scale(&self, s: f64) -> Color { Color { r: self.r * s, g: self.g * s, b: self.b * s } }
+
+    fn add(&self, other: Color) -> Color {
+        Color { r: self.r + other.r, g: self.g + other.g, b: self.b + other.b }
+    }
+}
+
+struct Sphere { center: Vector, radius: f64, color: Color }
+
+struct Light { position: Vector, color: Color }
+
+fn scene() -> Vec<Sphere> {
+    #[
+        Sphere { center: Vector { x: -1.0, y: 0.0, z: 3.0 }, radius: 0.3
+            color: Color { r: 1.0, g: 0.0, b: 0.0 } }
+        Sphere { center: Vector { x: 0.0, y: 0.0, z: 3.0 }, radius: 0.8
+            color: Color { r: 0.0, g: 1.0, b: 0.0 } }
+        Sphere { center: Vector { x: 1.0, y: 0.0, z: 3.0 }, radius: 0.4
+            color: Color { r: 0.0, g: 0.0, b: 1.0 } }
+    ]
+}
+
+fn key_light() -> Light {
+    Light {
+        position: Vector { x: 0.7, y: -1.0, z: 1.7 }
+        color: Color { r: 1.0, g: 1.0, b: 1.0 }
+    }
+}
+
+const LUT: [char; 6] = ['.', '-', '+', '*', 'X', 'M']
+
+pub struct TextRaytracer {
+    w: i64
+    h: i64
+    spheres: Vec<Sphere>
+    light: Light
+    result: u32
+}
+
+impl TextRaytracer {
+    pub fn new(cfg: Config) -> TextRaytracer {
+        TextRaytracer {
+            w: cfg.int("Etc::TextRaytracer", "w")
+            h: cfg.int("Etc::TextRaytracer", "h")
+            spheres: scene()
+            light: key_light()
+            result: 0
+        }
+    }
+
+    fn intersect(&self, origin: Vector, dir: Vector, sphere: Sphere) -> Option<f64> {
+        let l = sphere.center.sub(origin)
+        let tca = l.dot(dir)
+        if tca < 0.0 { return None }
+
+        let d2 = l.dot(l) - tca * tca
+        let r2 = sphere.radius * sphere.radius
+        if d2 > r2 { return None }
+
+        let t0 = tca - math::sqrt(r2 - d2)
+        if t0 > 10000.0 { return None }
+
+        Some(t0)
+    }
+
+    fn diffuse_shading(&self, point: Vector, sphere: Sphere) -> Color {
+        let normal = point.sub(sphere.center).normalize()
+        let light_dir = self.light.position.sub(point).normalize()
+        let lambert = math::clamp(light_dir.dot(normal), 0.0, 1.0)
+        self.light.color.scale(lambert * 0.5).add(sphere.color.scale(0.3))
+    }
+
+    fn shade_pixel(&self, origin: Vector, dir: Vector, sphere: Sphere, tval: f64) -> i64 {
+        let point = origin.add(dir.scale(tval))
+        let color = self.diffuse_shading(point, sphere)
+        (math::floor((color.r + color.g + color.b) / 3.0 * 6.0)) as i64
+    }
+}
+
+impl Bench for TextRaytracer {
+    fn run(&mut self, iteration_id: i64) {
+        let fw = self.w as f64
+        let fh = self.h as f64
+        let origin = Vector { x: 0.0, y: 0.0, z: 0.0 }
+
+        for j in 0..self.h {
+            for i in 0..self.w {
+                let dir = Vector {
+                    x: (i as f64 - fw / 2.0) / fw
+                    y: (j as f64 - fh / 2.0) / fh
+                    z: 1.0
+                }.normalize()
+
+                let mut pixel = ' '
+                for sphere in self.spheres {
+                    if let Some(tval) = self.intersect(origin, dir, sphere) {
+                        let idx = self.shade_pixel(origin, dir, sphere, tval)
+                        if idx >= 0 && idx < LUT.len() { pixel = LUT[idx] }
+                        break
+                    }
+                }
+
+                self.result +%= pixel as u32
+            }
+        }
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}

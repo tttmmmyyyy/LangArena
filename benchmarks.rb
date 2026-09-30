@@ -53,13 +53,14 @@ LANG_MASKS = {
   'cpp' => ['./cpp', ['.cpp', '.hpp', '.h', '.cc', '.cxx'], ['target', 'deps']],
   'golang' => ['./golang', ['.go'], ['target']],
   'crystal' => ['./crystal', ['.cr'], ['target', 'lib']],
+  'ruby' => ['./ruby', ['.rb'], []],
   'rust' => ['./rust', ['.rs'], ['target']],
   'csharp' => ['./csharp', ['.cs'], ['obj', 'bin']],
   'swift' => ['./swift', ['.swift'], ['.build', 'Package.swift']],
   'java' => ['./java', ['.java'], ['target']],
   'kotlin' => ['./kotlin', ['.kt'], ['build', '.gradle', 'gradle']],
   'typescript' => ['./typescript', ['.ts', '.tsx'], ['node_modules', 'target']],
-  'zig' => ['./zig', ['.zig'], ['.zig-cache']],
+  'zig' => ['./zig', ['.zig'], ['.zig-cache', 'zig-pkg']],
   'd' => ['./d', ['.d'], []],
   'v' => ['./v', ['.v'], ['target']],
   'julia' => ['./julia', ['.jl'], ['target']],
@@ -69,6 +70,10 @@ LANG_MASKS = {
   'python' => ['./python', ['.py'], ['__pycache__']],
   'odin' => ['./odin', ['.odin'], ['target']],
   'scala' => ['./scala', ['.scala'], ['target', 'project']],
+  'php' => ['./php', ['.php'], []],
+  'mojo' => ['./mojo', ['.mojo'], ['.pixi', 'target']],
+  'gossamer' => ['./gossamer', ['.gos'], ['target', '.gos-cache']],
+  'javascript' => ['./javascript', ['.js'], []],
   'fix' => ['./fix', ['.fix'], ['target', '.fixlang']],
 }
 
@@ -174,7 +179,7 @@ class Run
   end
 
   def rss_prefix
-    "/usr/bin/time -f 'MaxRSS(%M)KB' 2>&1 "
+    "/usr/bin/time -f 'MaxRSS(%M)KB\nuser_time=%U\nsystem_time=%S\nwall_time=%e' 2>&1 "
   end
 
   def execute_cmd(cmd)
@@ -183,16 +188,15 @@ class Run
     [stdout, stderr, status.exitstatus]
   end
 
-  def run(cmd, debug = false, measure_start_time = false)
-    if measure_start_time
-      cmd = %Q|#{dcr}#{rss_prefix} sh -c 'echo "start0: $(date +%s%3N)"; #{cmd}'|
-    else
-      cmd = %Q|#{dcr}#{rss_prefix} #{cmd}|
-    end
+  def run(cmd, debug = false)
+    cmd = %Q|#{dcr}#{rss_prefix} #{cmd}|
+    
     if debug
       print cmd
     end
+    
     stdout, stderr, exitstatus = execute_cmd(cmd)
+    
     if exitstatus != 0
       if IS_LOG_CRASH
         msg = "Failed `#{cmd}`, exitstatus: #{exitstatus}, stderr: `#{stderr}`"
@@ -202,18 +206,33 @@ class Run
         raise "Failed to build `#{cmd}`, exitstatus: #{exitstatus}"
       end
     end
+    
     stdout =~ /MaxRSS\(([0-9]*?)\)KB\n/
     rss = $1.to_i
+    
+    stdout =~ /user_time=([\d.]+)\n/
+    user_time = $1.to_f
+    
+    stdout =~ /system_time=([\d.]+)\n/
+    system_time = $1.to_f
+    
+    stdout =~ /wall_time=([\d.]+)\n/
+    wall_time = $1.to_f
 
-    stdout =~ /start0: ([0-9]+?)$/
-    start0_ts = $1.to_i
-    start0 = Time.at(start0_ts / 1000.0)
-
-    stdout =~ /start: ([0-9]+?)$/
-    start_ts = $1.to_i
-    start = Time.at(start_ts / 1000.0)
-
-    h = {out: stdout.sub(/MaxRSS\(([0-9]*?)\)KB\n/, ""), rss: rss, start_duration: (start - start0).to_f}
+    cleaned_stdout = stdout.sub(/MaxRSS\(([0-9]*?)\)KB\n/, "")
+                        .sub(/user_time=[\d.]+\n/, "")
+                        .sub(/system_time=[\d.]+\n/, "")
+                        .sub(/wall_time=[\d.]+\n/, "")
+    
+    h = {
+      out: cleaned_stdout,
+      rss: rss,
+      user_time: user_time,
+      system_time: system_time,
+      cpu_total: user_time + system_time,
+      wall_time: wall_time,
+    }
+    
     h
   end
 
@@ -311,26 +330,26 @@ RUNS = [
   # ======================================= C Mycc ======================================================
 
   Run.new(
-    name: "C/mycc/LLVM", 
+    name: "C/mycc/LLVM/Default", 
     build_cmd: "make -f Makefile_mycc BACKEND=llvm -j",
     binary_name: "./target/mycc-llvm-default-gcc/benchmark",
     run_cmd: "./target/mycc-llvm-default-gcc/benchmark", 
     version_cmd: "mycc --backend llvm --version",
     dir: "/src/c",
     container: "mycc",
-    group: :prod,
+    group: :hack,
     deps_cmd: "make -f Makefile_mycc deps",
   ),
 
   Run.new(
-    name: "C/mycc/QBE", 
+    name: "C/mycc/QBE/Default", 
     build_cmd: "make -f Makefile_mycc BACKEND=qbe -j",
     binary_name: "./target/mycc-qbe-default-gcc/benchmark",
     run_cmd: "./target/mycc-qbe-default-gcc/benchmark", 
     version_cmd: "mycc --backend qbe --version",
     dir: "/src/c",
     container: "mycc",
-    group: :prod,
+    group: :hack,
     deps_cmd: "make -f Makefile_mycc deps",
   ),
 
@@ -354,7 +373,7 @@ RUNS = [
     version_cmd: "mycc --backend llvm --version",
     dir: "/src/c",
     container: "mycc",
-    group: :hack,
+    group: :prod,
     deps_cmd: "make -f Makefile_mycc deps",
   ),
 
@@ -390,7 +409,7 @@ RUNS = [
     version_cmd: "echo 'cproc d1c53dd, qbe e786f06'",
     dir: "/src/c",
     container: "cproc",
-    group: :prod,
+    group: :hack,
     deps_cmd: "make -f Makefile_cproc deps",
   ),
 
@@ -713,7 +732,7 @@ RUNS = [
     dir: "/src/zig",
     container: "zig",
     group: :prod,
-    deps_cmd: "zig libc",
+    deps_cmd: "zig libc; zig build --fetch",
   ),
 
   Run.new(
@@ -725,13 +744,13 @@ RUNS = [
     dir: "/src/zig",
     container: "zig",
     group: :hack,
-    deps_cmd: "zig libc",
+    deps_cmd: "zig libc; zig build --fetch",
   ),
 
   # ======================================= crystal ======================================================
   Run.new(
     name: "Crystal", 
-    build_cmd: "crystal build main.cr --release -Dpreview_mt -o ./target/bin_crystal", 
+    build_cmd: "crystal build main.cr --release -o ./target/bin_crystal", 
     binary_name: "./target/bin_crystal", 
     run_cmd: "./target/bin_crystal", 
     version_cmd: "crystal --version | head -n 1",
@@ -743,7 +762,7 @@ RUNS = [
 
   Run.new(
     name: "Crystal/O3", 
-    build_cmd: "crystal build main.cr -O3 -Dpreview_mt -o ./target/bin_crystal_o3", 
+    build_cmd: "crystal build main.cr -O3 -o ./target/bin_crystal_o3", 
     binary_name: "./target/bin_crystal_o3", 
     run_cmd: "./target/bin_crystal_o3", 
     version_cmd: "crystal --version | head -n 1",
@@ -751,6 +770,20 @@ RUNS = [
     container: "crystal",
     group: :hack,
     deps_cmd: "mkdir -p target ; shards install",
+  ),
+
+  # ======================================= Mojo ======================================================
+  
+  Run.new(
+    name: "Mojo", 
+    build_cmd: "pixi run mojo build -O3 main.mojo -o target/bin_mojo",
+    binary_name: "./target/bin_mojo",
+    run_cmd: "./target/bin_mojo",
+    version_cmd: "pixi run mojo --version",
+    dir: "/src/mojo",
+    container: "mojo",
+    group: :prod, 
+    deps_cmd: "pixi install; mkdir -p target",
   ),
 
   # ======================================= D ======================================================
@@ -853,6 +886,20 @@ RUNS = [
   #   group: :hack,
   #   deps_cmd: "dub fetch",
   # ),
+
+  # ======================================= Gossamer ======================================================
+
+  Run.new(
+    name: "Gossamer",
+    build_cmd: "gos build --release",
+    binary_name: "./target/release/gossamer",
+    run_cmd: "./target/release/gossamer",
+    version_cmd: "gos --version",
+    dir: "/src/gossamer",
+    container: "gossamer",
+    group: :prod,
+    deps_cmd: "true",
+  ),
 
   # ======================================= V ======================================================
 
@@ -980,29 +1027,32 @@ RUNS = [
     group: :hack,
     deps_cmd: "mkdir -p target",
   ),
-  Run.new(
-    name: "Go/GccGo", 
-    build_cmd: "sh -c 'gccgo -O2 *.go -o ./target/bin_gccgo'", 
-    binary_name: "./target/bin_gccgo", 
-    run_cmd: "./target/bin_gccgo", 
-    version_cmd: "gccgo --version | head -n 1",
-    dir: "/src/golang",
-    container: "gccgo",
-    group: :hack,
-    deps_cmd: "mkdir -p target",
-  ),
 
-  Run.new(
-    name: "Go/GccGo/Opt", 
-    build_cmd: "sh -c 'gccgo -O3 -march=native -flto -fuse-linker-plugin -funroll-loops -fgo-optimize-allocs -static-libgo -s -w -fomit-frame-pointer -fno-semantic-interposition -fno-common -Bstatic *.go -o ./target/bin_gccgo_opt'", 
-    binary_name: "./target/bin_gccgo_opt", 
-    run_cmd: "./target/bin_gccgo_opt", 
-    version_cmd: "gccgo --version | head -n 1",
-    dir: "/src/golang",
-    container: "gccgo",
-    group: :hack,
-    deps_cmd: "mkdir -p target",
-  ),
+  # cant compile 
+  # Run.new(
+  #   name: "Go/GccGo", 
+  #   build_cmd: "sh -c 'gccgo -O2 *.go -o ./target/bin_gccgo'", 
+  #   binary_name: "./target/bin_gccgo", 
+  #   run_cmd: "./target/bin_gccgo", 
+  #   version_cmd: "gccgo --version | head -n 1",
+  #   dir: "/src/golang",
+  #   container: "gccgo",
+  #   group: :hack,
+  #   deps_cmd: "mkdir -p target",
+  # ),
+
+  # cant compile 
+  # Run.new(
+  #   name: "Go/GccGo/Opt", 
+  #   build_cmd: "sh -c 'gccgo -O3 -march=native -flto -fuse-linker-plugin -funroll-loops -fgo-optimize-allocs -static-libgo -s -w -fomit-frame-pointer -fno-semantic-interposition -fno-common -Bstatic *.go -o ./target/bin_gccgo_opt'", 
+  #   binary_name: "./target/bin_gccgo_opt", 
+  #   run_cmd: "./target/bin_gccgo_opt", 
+  #   version_cmd: "gccgo --version | head -n 1",
+  #   dir: "/src/golang",
+  #   container: "gccgo",
+  #   group: :hack,
+  #   deps_cmd: "mkdir -p target",
+  # ),
 
   # ======================================= C# ======================================================
 
@@ -1387,7 +1437,7 @@ RUNS = [
   
   Run.new(
     name: "Julia/Default", 
-    build_cmd: "true",  # Julia не требует сборки
+    build_cmd: "true",
     binary_name: "benchmark.jl",
     run_cmd: "julia --project=. --threads=16 benchmark.jl", 
     version_cmd: "julia --version | head -n 1",
@@ -1396,18 +1446,19 @@ RUNS = [
     group: :prod,
     deps_cmd: "sh deps.sh",
   ),
-  
-  Run.new(
-    name: "Julia/Opt", 
-    build_cmd: "true",
-    binary_name: "benchmark.jl",
-    run_cmd: "julia --project=. --threads=16 -O3 --check-bounds=no benchmark.jl", 
-    version_cmd: "julia --version | head -n 1",
-    dir: "/src/julia",
-    container: "julia",
-    group: :hack,
-    deps_cmd: "sh deps.sh",
-  ),
+
+  # no effect  
+  # Run.new(
+  #   name: "Julia/Opt", 
+  #   build_cmd: "true",
+  #   binary_name: "benchmark.jl",
+  #   run_cmd: "julia --project=. --threads=16 -O3 --check-bounds=no benchmark.jl", 
+  #   version_cmd: "julia --version | head -n 1",
+  #   dir: "/src/julia",
+  #   container: "julia",
+  #   group: :hack,
+  #   deps_cmd: "sh deps.sh",
+  # ),
   
   Run.new(
     name: "Julia/Max", 
@@ -1420,25 +1471,26 @@ RUNS = [
     group: :hack,
     deps_cmd: "sh deps.sh",
   ),
-  
-  Run.new(
-    name: "Julia/AOT", 
-    build_cmd: <<~CMD.chomp,
-      julia --project=. -e '
-        using PackageCompiler;
-        create_sysimage([:BenchmarkFramework];
-            sysimage_path="target/sysimage.so",
-            precompile_execution_file="./benchmark.jl")
-        '
-    CMD
-    binary_name: "target/sysimage.so",
-    run_cmd: "julia --project=. --sysimage=target/sysimage.so --threads=16 benchmark.jl", 
-    version_cmd: "julia --version | head -n 1",
-    dir: "/src/julia",
-    container: "julia",
-    group: :hack,
-    deps_cmd: "mkdir -p target; sh deps.sh",
-  ),
+
+  # too slow compile  
+  # Run.new(
+  #   name: "Julia/AOT", 
+  #   build_cmd: <<~CMD.chomp,
+  #     julia --project=. -e '
+  #       using PackageCompiler;
+  #       create_sysimage([:BenchmarkFramework];
+  #           sysimage_path="target/sysimage.so",
+  #           precompile_execution_file="./benchmark.jl")
+  #       '
+  #   CMD
+  #   binary_name: "target/sysimage.so",
+  #   run_cmd: "julia --project=. --sysimage=target/sysimage.so --threads=16 benchmark.jl", 
+  #   version_cmd: "julia --version | head -n 1",
+  #   dir: "/src/julia",
+  #   container: "julia",
+  #   group: :hack,
+  #   deps_cmd: "mkdir -p target; sh deps.sh",
+  # ),
 
   # ======================================= Swift ======================================================
 
@@ -1641,16 +1693,12 @@ RUNS = [
   Run.new(
     name: "Java/OpenJDK",
     build_cmd: <<~CMD.chomp,
-      mvn compile package -Pjava-plain \
-        -DskipTests \
-        -Dmaven.test.skip=true \
-        -q
+      mvn compile package -Pjava-plain -q
     CMD
     binary_name: "./target/java-benchmarks-1.0-SNAPSHOT.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -Xmx8g \
-        -Dfile.encoding=UTF-8 \
+        -Xmx2g \
         -jar ./target/java-benchmarks-1.0-SNAPSHOT.jar
     CMD
     version_cmd: "java --version",
@@ -1661,17 +1709,32 @@ RUNS = [
   ),
 
   Run.new(
-    name: "Java/OpenJDK/Opt",
+    name: "Java/OpenJDK/Serial",
     build_cmd: <<~CMD.chomp,
-      mvn compile package -Pjava-optimized \
-        -DskipTests \
-        -Dmaven.test.skip=true \
-        -q
+      mvn compile package -Pjava-plain -q
     CMD
     binary_name: "./target/java-benchmarks-1.0-SNAPSHOT.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -Dfile.encoding=UTF-8 \
+        -Xmx512m \
+        -XX:+UseSerialGC \
+        -jar ./target/java-benchmarks-1.0-SNAPSHOT.jar
+    CMD
+    version_cmd: "java --version",
+    dir: "/src/java",
+    container: "java",
+    group: :hack,
+    deps_cmd: "mvn dependency:resolve; mvn dependency:resolve-plugins",
+  ),
+
+  Run.new(
+    name: "Java/OpenJDK/Opt",
+    build_cmd: <<~CMD.chomp,
+      mvn compile package -Pjava-plain -q
+    CMD
+    binary_name: "./target/java-benchmarks-1.0-SNAPSHOT.jar",
+    run_cmd: <<~CMD.chomp,
+      java \
         -XX:+UseParallelGC \
         -XX:+UseLargePages \
         -XX:+AlwaysPreTouch \
@@ -1680,7 +1743,7 @@ RUNS = [
         -XX:+UseStringDeduplication \
         -XX:+DisableExplicitGC \
         -XX:+UseCountedLoopSafepoints \
-        -Xmx8g \
+        -Xmx2g \
         -jar ./target/java-benchmarks-1.0-SNAPSHOT.jar
     CMD
     version_cmd: "java --version",
@@ -1693,27 +1756,37 @@ RUNS = [
   Run.new(
     name: "Java/GraalVM/JIT",
     build_cmd: <<~CMD.chomp,
-      mvn compile package -Pgraalvm-jit \
-        -DskipTests \
-        -Dmaven.test.skip=true \
-        -q
+      mvn compile package -Pjava-plain -q
     CMD
     binary_name: "./target/java-benchmarks-1.0-SNAPSHOT.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -Dfile.encoding=UTF-8 \
-        -XX:+UseG1GC \
-        -XX:+EnableJVMCI \
-        -XX:+UseJVMCICompiler \
-        -Djvmci.Compiler=graal \
-        -XX:-TieredCompilation \
-        -Xmx8g \
+        -Xmx2g \
         -jar ./target/java-benchmarks-1.0-SNAPSHOT.jar
     CMD
     version_cmd: "java --version",
     dir: "/src/java",
     container: "graalvm",
     group: :prod,
+    deps_cmd: "mvn dependency:resolve; mvn dependency:resolve-plugins",
+  ),
+ 
+  Run.new(
+    name: "Java/GraalVM/Serial",
+    build_cmd: <<~CMD.chomp,
+      mvn compile package -Pjava-plain -q
+    CMD
+    binary_name: "./target/java-benchmarks-1.0-SNAPSHOT.jar",
+    run_cmd: <<~CMD.chomp,
+      java \
+        -XX:+UseSerialGC \
+        -Xmx512m \
+        -jar ./target/java-benchmarks-1.0-SNAPSHOT.jar
+    CMD
+    version_cmd: "java --version",
+    dir: "/src/java",
+    container: "graalvm",
+    group: :hack,
     deps_cmd: "mvn dependency:resolve; mvn dependency:resolve-plugins",
   ),
 
@@ -1776,7 +1849,7 @@ RUNS = [
     name: "Kotlin/JVM/Default",
     build_cmd: "./gradlew fatJar --no-daemon -q",
     binary_name: "/src/kotlin/build/libs/benchmarks.jar",
-    run_cmd: "java -Xmx8g -jar /src/kotlin/build/libs/benchmarks.jar",
+    run_cmd: "java -Xmx2g -jar /src/kotlin/build/libs/benchmarks.jar",
     version_cmd: "kotlin -version",
     dir: "/src/kotlin",
     container: "kotlin",
@@ -1790,14 +1863,12 @@ RUNS = [
     binary_name: "/src/kotlin/build/libs/benchmarks.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -server \
         -XX:+UseG1GC \
         -Xms2g \
-        -Xmx2g \
         -XX:+AlwaysPreTouch \
         -XX:+OptimizeStringConcat \
         -XX:+UseCompressedOops \
-        -Xmx8g \
+        -Xmx2g \
         -jar /src/kotlin/build/libs/benchmarks.jar
     CMD
     version_cmd: "kotlin -version",
@@ -1813,14 +1884,12 @@ RUNS = [
     binary_name: "/src/kotlin/build/libs/benchmarks.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -server \
         -XX:+UseParallelGC \
         -Xms4g \
         -Xmx8g \
         -XX:+AlwaysPreTouch \
         -XX:+UseLargePages \
         -XX:+DisableExplicitGC \
-        -Djava.security.egd=file:/dev/./urandom \
         -jar /src/kotlin/build/libs/benchmarks.jar
     CMD
     version_cmd: "kotlin -version",
@@ -1836,12 +1905,7 @@ RUNS = [
     binary_name: "/src/kotlin/build/libs/benchmarks.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -XX:+UseG1GC \
-        -XX:+EnableJVMCI \
-        -XX:+UseJVMCICompiler \
-        -Djvmci.Compiler=graal \
-        -XX:-TieredCompilation \
-        -Xmx8g \
+        -Xmx2g \
         -jar /src/kotlin/build/libs/benchmarks.jar
     CMD
     version_cmd: "kotlin -version",
@@ -1898,7 +1962,7 @@ RUNS = [
     name: "Scala/JVM/Default",
     build_cmd: "sbt 'assembly'",
     binary_name: "/src/scala/target/benchmark.jar",
-    run_cmd: "java -Xmx8g -jar /src/scala/target/benchmark.jar",
+    run_cmd: "java -Xmx2g -jar /src/scala/target/benchmark.jar",
     version_cmd: "scala -version",
     dir: "/src/scala",
     container: "scala",
@@ -1912,14 +1976,12 @@ RUNS = [
     binary_name: "/src/scala/target/benchmark.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -server \
         -XX:+UseG1GC \
         -Xms2g \
         -Xmx2g \
         -XX:+AlwaysPreTouch \
         -XX:+OptimizeStringConcat \
         -XX:+UseCompressedOops \
-        -Xmx8g \
         -jar /src/scala/target/benchmark.jar
     CMD
     version_cmd: "scala -version",
@@ -1935,7 +1997,6 @@ RUNS = [
     binary_name: "/src/scala/target/benchmark.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -server \
         -XX:+UseParallelGC \
         -Xms4g \
         -Xmx8g \
@@ -1958,12 +2019,7 @@ RUNS = [
     binary_name: "/src/scala/target/benchmark.jar",
     run_cmd: <<~CMD.chomp,
       java \
-        -XX:+UseG1GC \
-        -XX:+EnableJVMCI \
-        -XX:+UseJVMCICompiler \
-        -Djvmci.Compiler=graal \
-        -XX:-TieredCompilation \
-        -Xmx8g \
+        -Xmx2g \
         -jar /src/scala/target/benchmark.jar
     CMD
     version_cmd: "scala -version",
@@ -1980,6 +2036,18 @@ RUNS = [
     build_cmd: "dart compile exe main.dart -o target/dart_benchmark",
     binary_name: "target/dart_benchmark",
     run_cmd: "./target/dart_benchmark", 
+    version_cmd: "dart --version",
+    dir: "/src/dart",
+    container: "dart",   
+    group: :hack, 
+    deps_cmd: "dart pub get",
+  ),
+
+  Run.new(
+    name: "Dart/JIT", 
+    build_cmd: "true",
+    binary_name: "main.dart",
+    run_cmd: "dart run main.dart", 
     version_cmd: "dart --version",
     dir: "/src/dart",
     container: "dart",   
@@ -2188,8 +2256,220 @@ RUNS = [
     run_cmd: "pypy3 main.py", 
     version_cmd: "pypy3 --version",
     dir: "/src/python",
-    container: "pypy",
-    group: :prod,
+    container: "pypy",   
+    group: :prod, 
+    deps_cmd: "true",
+  ),
+
+  # ======================================= Ruby ======================================================
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/CRuby2/Default", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "ruby2",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/CRuby2/JIT", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby --jit main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "ruby2",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/CRuby3/Default", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "ruby3",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/CRuby3/YJIT", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby --yjit main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "ruby3",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/CRuby4/Default", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "ruby4",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  # too slow
+  Run.new(
+    name: "Ruby/CRuby4/YJIT", 
+    build_cmd: "true",
+    binary_name: "main.rb",
+    run_cmd: "ruby --yjit main.rb", 
+    version_cmd: "ruby --version",
+    dir: "/src/ruby",
+    container: "ruby4",
+    group: :hack, 
+    deps_cmd: "true",
+  ),
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/CRuby4/ZJIT", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby --zjit main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "ruby4",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/Truffle/Native", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "truffleruby",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  Run.new(
+    name: "Ruby/Truffle/JVM", 
+    build_cmd: "true",
+    binary_name: "main.rb",
+    run_cmd: "ruby main.rb", 
+    version_cmd: "ruby --version",
+    dir: "/src/ruby",
+    container: "truffleruby_jvm",
+    group: :hack, 
+    deps_cmd: "true",
+  ),
+
+  # too slow
+  # Run.new(
+  #   name: "Ruby/JRuby", 
+  #   build_cmd: "true",
+  #   binary_name: "main.rb",
+  #   run_cmd: "ruby main.rb", 
+  #   version_cmd: "ruby --version",
+  #   dir: "/src/ruby",
+  #   container: "jruby",
+  #   group: :hack, 
+  #   deps_cmd: "true",
+  # ),
+
+  Run.new(
+    name: "Ruby/Spinel/Clang", 
+    build_cmd: "spinel main.rb -o target/bin_spinel_clang",
+    binary_name: "target/bin_spinel_clang",
+    run_cmd: "target/bin_spinel_clang", 
+    version_cmd: "spinel --version",
+    dir: "/src/ruby",
+    container: "spinel_clang",
+    group: :hack, 
+    deps_cmd: "mkdir -p target",
+  ),
+
+  # Run.new(
+  #   name: "Ruby/Spinel/Gcc", 
+  #   build_cmd: "spinel main.rb -o target/bin_spinel_gcc",
+  #   binary_name: "target/bin_spinel_gcc",
+  #   run_cmd: "target/bin_spinel_gcc", 
+  #   version_cmd: "spinel --version",
+  #   dir: "/src/ruby",
+  #   container: "spinel_gcc",
+  #   group: :hack, 
+  #   deps_cmd: "mkdir -p target",
+  # ),
+
+  # ======================================= Php ======================================================
+  
+  Run.new(
+    name: "PHP", 
+    build_cmd: "true",
+    binary_name: "main.php",
+    run_cmd: "php -d opcache.enable=1 -d opcache.enable_cli=1 -d opcache.jit=tracing -d opcache.jit_buffer_size=256M -d memory_limit=-1 main.php",
+    version_cmd: "php --version | head -n 1",
+    dir: "/src/php",
+    container: "php",
+    group: :hack, 
+    deps_cmd: "true",
+  ),
+
+  # ======================================= JavaScript ======================================================
+
+  Run.new(
+    name: "JS/Node/Default",
+    build_cmd: "true",
+    binary_name: "/src/javascript/index.js",
+    run_cmd: "node /src/javascript/index.js",
+    version_cmd: "node --version",
+    dir: "/src/javascript",
+    container: "typescript",
+    group: :hack,
+    deps_cmd: "true",
+  ),
+
+  Run.new(
+    name: "JS/Bun/JIT",
+    build_cmd: "true",
+    binary_name: "/src/javascript/index.js",
+    run_cmd: "bun run /src/javascript/index.js",
+    version_cmd: "bun --version",
+    dir: "/src/javascript",
+    container: "typescript-bun",
+    group: :hack,
+    deps_cmd: "true",
+  ),
+
+  Run.new(
+    name: "JS/Deno/Default",
+    build_cmd: "true",
+    binary_name: "/src/javascript/index.js",
+    run_cmd: <<~CMD.chomp,
+      deno run \
+        --allow-all \
+        --v8-flags=--max-old-space-size=4096 \
+        /src/javascript/index.js
+    CMD
+    version_cmd: "deno --version",
+    dir: "/src/javascript",
+    container: "typescript-deno",
+    group: :hack,
     deps_cmd: "true",
   ),
 
@@ -2261,7 +2541,7 @@ tests = JSON.parse(test_txt).map { |h| h["name"] }
 TESTS = case ARGV[1]
 when nil, ""
   tests
-when "rand", "Rand", "r", "r"
+when "rand", "Rand", "r", "R"
   tests.sample(1)
 else
   regx = /#{Regexp.escape ARGV[1]}/
@@ -2291,9 +2571,12 @@ else
   RESULTS["compile-memory-cold"] = {}
   RESULTS["compile-memory-incremental"] = {}
   RESULTS["compile-time-cold"] = {}
+  RESULTS["compile-usertime-cold"] = {}
+  RESULTS["compile-systemtime-cold"] = {}
   RESULTS["compile-time-incremental"] = {}
+  RESULTS["compile-usertime-incremental"] = {}
+  RESULTS["compile-systemtime-incremental"] = {}
   RESULTS["version"] = {}
-  RESULTS["start-duration"] = {}
 end
 
 unless ARGV[0]
@@ -2332,27 +2615,26 @@ CFG = IS_RUN_TEST ? "../test.js" : "../run.js"
 
 def build(run, verbose = true, test_incremental = false)
   print "building #{run.name} ..."
-  stats = nil
-  delta = measure do
-    stats = run.run(run.build_cmd, verbose)
-  end
+  stats = run.run(run.build_cmd, verbose)
   fsize_stats = run.run("sh -c 'du -k #{run.binary_name} | cut -f1'", verbose)
   RESULTS["binary-size-kb"][run.name] = fsize_stats[:out].split("\n").last.to_i
   RESULTS["build-cmd"][run.name] = run.build_cmd
   RESULTS["run-cmd"][run.name] = run.run_cmd
-  RESULTS["compile-time-cold"][run.name] = delta.to_f  
+  RESULTS["compile-time-cold"][run.name] = stats[:wall_time]
+  RESULTS["compile-usertime-cold"][run.name] = stats[:user_time]
+  RESULTS["compile-systemtime-cold"][run.name] = stats[:system_time]
   RESULTS["compile-memory-cold"][run.name] = stats[:rss] / 1024.0
-  print " cold in #{delta.to_f.round(2)}s"
+  print " cold wall in #{stats[:wall_time].round(2)}s, timetotal in #{stats[:cpu_total].round(2)}s"
   
   if test_incremental && (marker_file = RECOMPILE_MARKER_FILES[run.lang])
     begin
       File.write(marker_file, File.read(marker_file).gsub(RECOMPILE_MARKER_0, RECOMPILE_MARKER_1))
-      delta = measure do
-        stats = run.run(run.build_cmd, verbose)
-      end
-      RESULTS["compile-time-incremental"][run.name] = delta.to_f  
+      stats = run.run(run.build_cmd, verbose)
+      RESULTS["compile-time-incremental"][run.name] = stats[:wall_time]
+      RESULTS["compile-usertime-incremental"][run.name] = stats[:user_time]
+      RESULTS["compile-systemtime-incremental"][run.name] = stats[:system_time]
       RESULTS["compile-memory-incremental"][run.name] = stats[:rss] / 1024.0
-      print ", incremental in #{delta.round(2)}s"
+      print ", inc wall in #{stats[:wall_time].round(2)}s, inc timetotal in #{stats[:cpu_total].round(2)}s"
     ensure
       File.write(marker_file, File.read(marker_file).gsub(RECOMPILE_MARKER_1, RECOMPILE_MARKER_0))
     end
@@ -2362,7 +2644,6 @@ def build(run, verbose = true, test_incremental = false)
 
   RESULTS["version"][run.name] = run.version  
   puts
-  delta
 end
 
 write_results
@@ -2380,7 +2661,7 @@ write_results
 
 def run(run, index)
   # run.remove_binary
-  run.run(run.build_cmd, false) # build still neded because swift, java, kotlin, typescript all use same binary
+  run.run(run.build_cmd, false) # build still needed because swift, java, kotlin, typescript all use same binary
 
   summary = 0.0
   memory = 0.0
@@ -2391,16 +2672,11 @@ def run(run, index)
     RESULTS[test_name+"-runtime"] ||= {}
     RESULTS[test_name+"-mem-mb"] ||= {}
   
-    stats = run.run("#{run.run_cmd} #{CFG} #{test_name}", IS_VERBOSE, true)
+    stats = run.run("#{run.run_cmd} #{CFG} #{test_name}", IS_VERBOSE)
     mem = stats[:rss] / 1024.0
     memory += mem
     RESULTS[test_name+"-mem-mb"][run.name] = mem
 
-    RESULTS[test_name+"-mem-mb"][run.name]
-
-    RESULTS["start-duration"][run.name] ||= 0.0
-    RESULTS["start-duration"][run.name] += stats[:start_duration]
-    
     if stats[:out] =~ /#{test_name}: OK in ([\d\.]+)s/      
       run_time = $1.to_f
       summary += run_time
@@ -2424,12 +2700,6 @@ RUNS.each_with_index do |run, index|
   end
   puts "Finished #{run.name} in #{delta.round(3)} (#{summary.round(3)}s, #{memory.round(3)}Mb)"
   write_results
-end
-
-unless APPEND_RESULTS
-  RESULTS["start-duration"].each do |run, v|
-    RESULTS["start-duration"][run] = v / TESTS.size
-  end
 end
 
 end_t = Process.clock_gettime(Process::CLOCK_MONOTONIC, :nanosecond)

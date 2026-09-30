@@ -28,7 +28,8 @@ function changeTab(tabId, group_lang_option_checked = false, choose_lang = null)
         'history_tab': 'History',
         'history_full_tab': 'Full History',
         'askai_tab': 'Q&A',
-        'top_tab': 'Summary'
+        'top_tab': 'Summary',
+        'hacking_summary_tab': 'Hacking Summary'
     };
     document.title = tabNames[tabId] + ' | LangArena';
     
@@ -40,7 +41,13 @@ function changeTab(tabId, group_lang_option_checked = false, choose_lang = null)
     
     switch(tabId) {
         case 'overview_tab':
-            overview_tab($results);
+            loadScriptOnDemand('overview.js', function() {
+                if (typeof overview_tab === 'function') {
+                    overview_tab($results);
+                } else {
+                    $results.html('<div class="error">Module not available</div>');
+                }
+            });
             break;
         case 'runtime_tab':
             var data = window.Data.runtime_table;
@@ -80,10 +87,22 @@ function changeTab(tabId, group_lang_option_checked = false, choose_lang = null)
             hacking_tab(choose_lang || 'c');            
             break;
         case 'analys_tab':
-            ai_analys($results);
+            loadScriptOnDemand('ai_analysis.js', function() {
+                if (typeof ai_analys === 'function') {
+                    ai_analys($results);
+                } else {
+                    $results.html('<div class="error">AI Analysis module not available</div>');
+                }
+            });
             break;
         case 'critic_tab':
-            ai_critic($results);
+            loadScriptOnDemand('ai_critic.js', function() {
+                if (typeof ai_critic === 'function') {
+                    ai_critic($results);
+                } else {
+                    $results.html('<div class="error">AI Critic module not available</div>');
+                }
+            });
             break;
         case 'history_tab':
             history_tab(choose_lang || 'c', 'history', 'history_tab');
@@ -105,6 +124,9 @@ function changeTab(tabId, group_lang_option_checked = false, choose_lang = null)
             break;
         case 'top_tab':
             top_tab();
+            break;
+        case 'hacking_summary_tab':
+            hacking_summary_tab();
             break;
     }
 }
@@ -200,7 +222,7 @@ function UpdateData(data) {
 }
 
 function create_table($parent_div, title, data, use_color_compare = 0, group_lang_option = false, group_lang_option_checked = false) {
-    $parent_div.append(`<h2>${title}</h2>`);
+    $parent_div.append(`<div class=table_header><h2>${title}</h2></div>`);
 
     if (group_lang_option) {
         var activeTabId = $('.tabs button.tab.active').attr('id');
@@ -240,7 +262,7 @@ function create_table($parent_div, title, data, use_color_compare = 0, group_lan
     if (data.first_row) $th.text(data.first_row);
     $tr.append($th);
     for (let h of up_header) {
-        const $td = $('<th>').html(h.replace(/\//g, '<br>'));
+        const $td = $('<th>').html(h.replace(/\//g, '<br>').replace(/TypeScript/g, 'TS').replace(/Mojo/g, 'Mojo*').replace(/Gossamer/g, 'Gsmr'));
         $tr.append($td);
         if (lang_sticky_up) $td.attr('class', 'lang_' + run_name_to_lang_class_name(h));
     }
@@ -309,6 +331,11 @@ function lang_name_to_human(lang) {
     s = s.replace('pp', '++');
     s = s.replace('sharp', '#');
     return s;
+}
+
+function run_name_to_lang(run_name) {
+    let s = run_name.split('/')[0].toLowerCase();
+    return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function createSpeedRankFunction(values, invert = false) {
@@ -406,28 +433,35 @@ function value_fixed(v) {
 function lang_color(lang) {
     const key = lang.toLowerCase();
     const colorMap = {
-        'c': '#3498db',
-        'cpp': '#2ecc71',
-        'go': '#9b59b6',
-        'golang': '#9b59b6',
-        'crystal': '#e67e22',
-        'rust': '#e74c3c',
-        'csharp': '#1abc9c',
-        'swift': '#356ba2',
-        'java': '#f1c40f',
-        'kotlin': '#7c83ea',
-        'typescript': '#16a085',
-        'zig': '#a41111',
-        'd': '#24366c',
-        'v': '#3069c1',
-        'julia': '#fd4137',
-        'nim': '#16bad5',
-        'fsharp': '#16deff',
-        'dart': '#02569B',
-        'python': '#306998',
-        'odin': '#144d35',
-        'scala': '#ff0083'
+        'c': '#00599C',
+        'cpp': '#F34B7D',
+        'go': '#00ADD8',
+        'golang': '#00ADD8',
+        'crystal': '#000000',
+        'rust': '#DEA584',
+        'csharp': '#512BD4',
+        'swift': '#F05138',
+        'java': '#007396',
+        'kotlin': '#7F52FF',
+        'typescript': '#3178C6',
+        'zig': '#F7A41D',
+        'd': '#B03931',
+        'v': '#5C87DB',
+        'julia': '#8B0000',
+        'nim': '#FFC200',
+        'fsharp': '#378BBA',
+        'dart': '#00B4AB',
+        'python': '#3776AB',
+        'odin': '#A16B3E',
+        'scala': '#DC322F',
+        'c3': '#3C99B1',
+        'ruby': '#CC342D',
+        'mojo': '#FF4D00',
+        'php': '#8892BF',
+        'gossamer': '#38BDF8',
+        'js': '#F7DF1E'
     };
+
     return colorMap[key] || '#95a5a6';
 }
 
@@ -494,7 +528,7 @@ function hacking_tab(select_lang = 'c') {
     $filters = $('<div>', {class: 'filters'});
     $filters.append('<span>Filter by language:</span>');
 
-    const keys = Object.keys(window.Data['history']);
+    const keys = Object.keys(window.Data['history_full']);
     for (const lang of keys) {
         $filters.append(`
             <button class="filter-btn" id="filter_button_${lang}" onclick="changeTab('hacking_tab', false, '${lang}')" style="border-left-color: ${lang_color(lang)}; border-left-width: 3px;">
@@ -529,7 +563,7 @@ function history_tab(select_lang = 'c', key = 'history', tab = 'history_tab') {
     $('.filters .filter-btn').removeClass('active');    
     $(`#filter_button_${select_lang}`).addClass('active');
     
-    $results.append(`<h2>History runtime of language: ${select_lang}</h2>`);
+    $results.append(`<div class=table_header><h2>History runtime of language: ${select_lang}</h2></div>`);
     
     $results.append(`
         <div>
@@ -652,7 +686,7 @@ function prev_run_tab() {
     if (window.Data.prev_diff) {
         create_table($results, "Previous update runtime diff, %", window.Data.prev_diff, 1);
     } else {
-        $results.append(`<h2>Previous update runtime diff, %</h2><br><br>No Data ...`);
+        $results.append(`<div class=table_header><h2>Previous update runtime diff, %</h2></div><br><br>No Data ...`);
     }
 }
 
@@ -661,7 +695,7 @@ function top_tab() {
     $results.empty();
     
     $results.append(`
-        <h2>Summary</h2>
+        <div class=table_header><h2>Summary</h2></div>
     `);
     
     $results.append(`
@@ -685,7 +719,7 @@ function top_tab() {
                 </div>
             </div>
             <div class="stat-card" style="height: 740px">
-                <h3>Inc compile time, s</h3>
+                <h3>Compile Cold WallTime, s</h3>
                 <div style="height: 700px">
                 <canvas id="chart_compile"></canvas>
                 </div>
@@ -767,7 +801,7 @@ function createTopChart(containerId, data, title, lowerIsBetter, maxValue) {
     const summary = data.summary.data;
     
     const combined = up_header.map((name, index) => ({
-        name: name,
+        name: run_name_to_lang(name),
         value: summary[index]
     }));
     
@@ -867,7 +901,7 @@ function createTopChartFromCompile(containerId, data, title) {
     const map = data.map;
     const up_header = data.up_header;
     
-    let incrementalIndex = up_header.findIndex(h => h.includes('Time Incremental'));
+    let incrementalIndex = up_header.findIndex(h => h.includes("Cold WallTime, s"));
     if (incrementalIndex === -1) {
         incrementalIndex = 2;
     }
@@ -876,7 +910,7 @@ function createTopChartFromCompile(containerId, data, title) {
         const row = map[index];
         const value = row[incrementalIndex] || 0;
         return {
-            name: name,
+            name: run_name_to_lang(name),
             value: value
         };
     });
@@ -980,7 +1014,7 @@ function createTopChartFromSource(containerId, data, title) {
         const row = map[index];
         const value = row[expressivenessIndex] || 0;
         return {
-            name: name,
+            name: run_name_to_lang(name),
             value: value
         };
     });
@@ -1054,25 +1088,212 @@ function createTopChartFromSource(containerId, data, title) {
     });
 }
 
+function hacking_summary_tab() {
+    const $results = $('#results');
+    $results.empty();
+    
+    $results.append(`<div class=table_header><h2>Hacking Summary</h2></div>`);
+    
+    $results.append(`
+        <div class="stats-grid">
+            <div class="stat-card" style="height: 1640px">
+                <h3>Runtime (Summary), s</h3>
+                <div style="height: 1600px">
+                <canvas id="chart_hacking_runtime"></canvas>
+                </div>
+            </div>
+            <div class="stat-card" style="height: 1640px">
+                <h3>Runtime Score, pts</h3>
+                <div style="height: 1600px">
+                <canvas id="chart_hacking_rtscore"></canvas>
+                </div>
+            </div>
+            <div class="stat-card" style="height: 1640px">
+                <h3>Memory (Average), Mb</h3>
+                <div style="height: 1600px">
+                <canvas id="chart_hacking_memory"></canvas>
+                </div>
+            </div>
+        </div>
+    `);
+    
+    setTimeout(() => {
+        if (window.Data.hacking_data_runtime) {
+            createHackingChart(
+                'chart_hacking_runtime',
+                window.Data.hacking_data_runtime,
+                'Runtime, s',
+                true,
+                300
+            );
+        }
+        
+        if (window.Data.hacking_data_rtscore) {
+            createHackingChart(
+                'chart_hacking_rtscore',
+                window.Data.hacking_data_rtscore,
+                'RtScore, pts',
+                false,
+                100
+            );
+        }
+        
+        if (window.Data.hacking_data_memory) {
+            const memoryData = window.Data.hacking_data_memory;
+            const maxMemory = Math.max(...memoryData.summary.data);
+            const memoryLimit = maxMemory > 600 ? 600 : null;
+            
+            createHackingChart(
+                'chart_hacking_memory',
+                memoryData,
+                'Memory, Mb',
+                true,
+                memoryLimit
+            );
+        }
+    }, 300);
+}
+
+function createHackingChart(containerId, data, title, lowerIsBetter, maxValue = null) {
+    const canvas = document.getElementById(containerId);
+    if (!canvas) {
+        console.error('Canvas not found:', containerId);
+        return;
+    }
+    
+    if (!data || !data.up_header || !data.summary || !data.summary.data) {
+        console.error('Invalid data for chart:', containerId, data);
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    
+    const up_header = data.up_header;
+    const summary = data.summary.data;
+    
+    const combined = up_header.map((name, index) => ({
+        name: name,
+        value: summary[index],
+        originalValue: summary[index]
+    }));
+    
+    sorted = null;
+    if (lowerIsBetter) {
+        sorted = combined.sort((a, b) => a.value - b.value);
+    } else {
+        sorted = combined.sort((a, b) => b.value - a.value);
+    }
+    
+    const displayData = sorted.map(item => ({
+        ...item,
+        displayValue: maxValue !== null && item.value > maxValue ? maxValue : item.value,
+        isClipped: maxValue !== null && item.value > maxValue
+    }));
+    
+    const colors = displayData.map(item => {
+        const langName = item.name.split('/')[0];
+        return lang_color(run_name_to_lang_class_name(langName));
+    });
+    
+    const displayValues = displayData.map(item => item.displayValue);
+    const originalValues = displayData.map(item => item.originalValue);
+    
+    let maxAxis = maxValue !== null ? maxValue * 1.05 : Math.max(...displayValues) * 1.15;
+    
+    const axisLabel = lowerIsBetter 
+        ? `${title} (lower is better)`
+        : `${title} (higher is better)`;
+    
+    let chartTitle = title;
+    if (maxValue !== null) {
+        const maxOriginal = Math.max(...originalValues);
+        if (maxOriginal > maxValue) {
+            chartTitle = `${title} (clipped at ${maxValue})`;
+        }
+    }
+    
+    const existingChart = Chart.getChart(containerId);
+    if (existingChart) {
+        existingChart.destroy();
+    }
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: displayData.map(item => {
+                return item.isClipped ? `${item.name}*` : item.name;
+            }),
+            datasets: [{
+                label: chartTitle,
+                data: displayValues,
+                backgroundColor: colors,
+                borderColor: colors,
+                borderWidth: 2,
+                borderRadius: 4,
+                barThickness: Math.max(12, Math.min(26, 800 / displayData.length))
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const index = context.dataIndex;
+                            const originalValue = originalValues[index];
+                            const displayValue = displayValues[index];
+                            const isClipped = displayData[index].isClipped;
+                            
+                            if (isClipped) {
+                                return `${title}: ${originalValue.toFixed(2)} (clipped)`;
+                            }
+                            return `${title}: ${originalValue.toFixed(2)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    max: maxAxis,
+                    title: {
+                        display: true,
+                        text: axisLabel,
+                        font: {
+                            size: 10
+                        }
+                    },
+                    ticks: {
+                        font: {
+                            size: 9
+                        }
+                    }
+                },
+                y: {
+                    ticks: {
+                        align: 'start',
+                        font: {
+                            size: 8
+                        },
+                        autoSkip: false
+                    }
+                }
+            }
+        }
+    });
+}
+
 const s = document.createElement('script');
 s.src = 'data.js';
 s.onload = () => {
     UpdateData(window.Data);
 };
 document.head.appendChild(s);
-
-const s2 = document.createElement('script');
-s2.src = 'overview.js';
-document.head.appendChild(s2);
-
-const s3 = document.createElement('script');
-s3.src = 'ai_analysis.js';
-document.head.appendChild(s3);
-
-const s4 = document.createElement('script');
-s4.src = 'ai_critic.js';
-document.head.appendChild(s4);
-
 
 window.addEventListener('popstate', function(event) {
     if (event.state) {
@@ -1104,3 +1325,30 @@ window.addEventListener('popstate', function(event) {
         }
     }
 });
+
+const loadedScripts = {};
+
+function loadScriptOnDemand(scriptName, callback) {
+    if (loadedScripts[scriptName]) {
+        callback();
+        return;
+    }
+    
+    const existingScripts = document.querySelectorAll(`script[src="${scriptName}"]`);
+    if (existingScripts.length > 0) {
+        loadedScripts[scriptName] = true;
+        callback();
+        return;
+    }
+
+    const script = document.createElement('script');
+    script.src = scriptName;
+    script.onload = function() {
+        loadedScripts[scriptName] = true;
+        callback();
+    };
+    script.onerror = function() {
+        $('#results').html(`<div class="error">Failed to load ${scriptName}</div>`);
+    };
+    document.head.appendChild(script);
+}

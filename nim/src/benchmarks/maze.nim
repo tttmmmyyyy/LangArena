@@ -36,7 +36,7 @@ type
     maze: Maze
     path: seq[Cell]
 
-  Item* = object
+  AStarEntry* = object
     priority: int
     vertex: int
 
@@ -46,6 +46,11 @@ type
     maze: Maze
     path: seq[Cell]
 
+proc `<`(a, b: AStarEntry): bool =
+  if a.priority != b.priority:
+    return a.priority < b.priority
+  return a.vertex < b.vertex
+
 proc newCell(x, y: int): Cell
 proc isWalkable*(kind: CellKind): bool
 proc addNeighbor*(cell: Cell, neighbor: Cell)
@@ -54,7 +59,7 @@ proc newMaze*(width, height: int): Maze
 proc updateNeighbors*(maze: Maze)
 proc reset*(maze: Maze)
 proc dig*(maze: Maze, startCell: Cell)
-proc ensureOpenFinish*(maze: Maze, startCell: Cell)
+proc ensureOpenFinish*(maze: Maze, cell: Cell)
 proc generate*(maze: Maze)
 proc middleCell*(maze: Maze): Cell
 proc checksum*(maze: Maze): uint32
@@ -126,7 +131,7 @@ proc reset*(maze: Maze) =
   maze.finish.kind = Finish
 
 proc dig*(maze: Maze, startCell: Cell) =
-  var stack = newSeq[Cell]()
+  var stack = newSeqOfCap[Cell](maze.width * maze.height)
   stack.add(startCell)
 
   while stack.len > 0:
@@ -137,30 +142,28 @@ proc dig*(maze: Maze, startCell: Cell) =
       if n.kind.isWalkable:
         inc walkable
 
-    if walkable == 1:
-      cell.kind = Space
-      for n in cell.neighbors:
-        if n.kind == Wall:
-          stack.add(n)
-
-proc ensureOpenFinish*(maze: Maze, startCell: Cell) =
-  var stack = newSeq[Cell]()
-  stack.add(startCell)
-
-  while stack.len > 0:
-    let cell = stack.pop()
+    if walkable != 1:
+      continue
 
     cell.kind = Space
-
-    var walkable = 0
     for n in cell.neighbors:
-      if n.kind.isWalkable:
-        inc walkable
+      if n.kind == Wall:
+        stack.add(n)
 
-    if walkable <= 1:
-      for n in cell.neighbors:
-        if n.kind == Wall:
-          stack.add(n)
+proc ensureOpenFinish*(maze: Maze, cell: Cell) =
+  cell.kind = Space
+
+  var walkable = 0
+  for n in cell.neighbors:
+    if n.kind.isWalkable:
+      inc walkable
+
+  if walkable > 1:
+    return
+
+  for n in cell.neighbors:
+    if n.kind == Wall:
+      maze.ensureOpenFinish(n)
 
 proc generate*(maze: Maze) =
   for n in maze.start.neighbors:
@@ -284,12 +287,6 @@ method checksum(self: MazeBFS): uint32 =
 
 registerBenchmark("Maze::BFS", newMazeBFS)
 
-proc `<`(a, b: Item): bool =
-  if a.priority != b.priority:
-    a.priority < b.priority
-  else:
-    a.vertex < b.vertex
-
 proc newMazeAStar*(): Benchmark =
   MazeAStar()
 
@@ -326,19 +323,16 @@ proc astar(maze: Maze, start, target: Cell, width, height: int): seq[Cell] =
   let startIdx = idx(start.y, start.x, width)
   let targetIdx = idx(target.y, target.x, width)
 
-  var openSet = initHeapQueue[Item]()
-  var inOpen = newSeq[bool](size)
+  var openSet = initHeapQueue[AStarEntry]()
 
   gScore[startIdx] = 0
   let fStart = heuristic(start, target)
-  openSet.push(Item(priority: fStart, vertex: startIdx))
+  openSet.push(AStarEntry(priority: fStart, vertex: startIdx))
   bestF[startIdx] = fStart
-  inOpen[startIdx] = true
 
   while openSet.len > 0:
-    let current = openSet.pop()
-    let currentIdx = current.vertex
-    inOpen[currentIdx] = false
+    let entry = openSet.pop()
+    let currentIdx = entry.vertex
 
     if currentIdx == targetIdx:
       var cur = currentIdx
@@ -369,8 +363,7 @@ proc astar(maze: Maze, start, target: Cell, width, height: int): seq[Cell] =
 
         if fNew < bestF[neighborIdx]:
           bestF[neighborIdx] = fNew
-          openSet.push(Item(priority: fNew, vertex: neighborIdx))
-          inOpen[neighborIdx] = true
+          openSet.push(AStarEntry(priority: fNew, vertex: neighborIdx))
 
   @[]
 

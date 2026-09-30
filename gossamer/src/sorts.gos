@@ -1,0 +1,146 @@
+use bench::Bench
+use config::Config
+use helper
+
+struct SortData {
+    size: i64
+    data: Vec<i64>
+    result: u32
+    rng: helper::Rng
+}
+
+impl SortData {
+    fn new(cfg: Config, name: String) -> SortData {
+        let size = cfg.int(name, "size")
+        let mut rng = helper::Rng::new()
+        let mut data: Vec<i64> = #[]
+        for _ in 0..size { data.push(rng.next_int(1_000_000)) }
+        SortData { size: size, data: data, result: 0, rng: rng }
+    }
+
+    fn sample(&mut self, from: Vec<i64>) {
+        let index = self.rng.next_int(self.size)
+        self.result +%= from[index] as u32
+    }
+}
+
+fn quick_sort(arr: &mut Vec<i64>, left: i64, right: i64) {
+    if left >= right { return }
+
+    let pivot = arr[(left + right) / 2]
+    let mut i = left
+    let mut j = right
+
+    while i <= j {
+        while arr[i] < pivot { i += 1 }
+        while arr[j] > pivot { j -= 1 }
+        if i <= j {
+            arr.swap(i, j)
+            i += 1
+            if j > left { j -= 1 } else { break }
+        }
+    }
+
+    quick_sort(arr, left, j)
+    quick_sort(arr, i, right)
+}
+
+pub struct SortQuick { inner: SortData }
+
+impl SortQuick {
+    pub fn new(cfg: Config) -> SortQuick { SortQuick { inner: SortData::new(cfg, "Sort::Quick") } }
+}
+
+impl Bench for SortQuick {
+    fn warmup(&mut self, iterations: i64) {
+        for i in 0..iterations { self.run(i) }
+        self.inner.rng.reset()
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.inner.sample(self.inner.data)
+        let mut t = self.inner.data.clone()
+        quick_sort(&mut t, 0, t.len() - 1)
+        self.inner.sample(t)
+    }
+
+    fn checksum(&self) -> u32 { self.inner.result }
+}
+
+fn merge(arr: &mut Vec<i64>, temp: &mut Vec<i64>, left: i64, mid: i64, right: i64) {
+    for i in left..=right { temp[i] = arr[i] }
+
+    let mut i = left
+    let mut j = mid + 1
+    let mut k = left
+
+    while i <= mid && j <= right {
+        if temp[i] <= temp[j] {
+            arr[k] = temp[i]
+            i += 1
+        } else {
+            arr[k] = temp[j]
+            j += 1
+        }
+        k += 1
+    }
+
+    while i <= mid {
+        arr[k] = temp[i]
+        i += 1
+        k += 1
+    }
+}
+
+fn merge_sort(arr: &mut Vec<i64>, temp: &mut Vec<i64>, left: i64, right: i64) {
+    if left >= right { return }
+    let mid = (left + right) / 2
+    merge_sort(arr, temp, left, mid)
+    merge_sort(arr, temp, mid + 1, right)
+    merge(arr, temp, left, mid, right)
+}
+
+pub struct SortMerge { inner: SortData }
+
+impl SortMerge {
+    pub fn new(cfg: Config) -> SortMerge { SortMerge { inner: SortData::new(cfg, "Sort::Merge") } }
+}
+
+impl Bench for SortMerge {
+    fn warmup(&mut self, iterations: i64) {
+        for i in 0..iterations { self.run(i) }
+        self.inner.rng.reset()
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.inner.sample(self.inner.data)
+        let mut t = self.inner.data.clone()
+        let mut temp: Vec<i64> = #[0; t.len()]
+        merge_sort(&mut t, &mut temp, 0, t.len() - 1)
+        self.inner.sample(t)
+    }
+
+    fn checksum(&self) -> u32 { self.inner.result }
+}
+
+pub struct SortSelf { inner: SortData }
+
+impl SortSelf {
+    pub fn new(cfg: Config) -> SortSelf { SortSelf { inner: SortData::new(cfg, "Sort::Self") } }
+}
+
+impl Bench for SortSelf {
+    fn warmup(&mut self, iterations: i64) {
+        for i in 0..iterations { self.run(i) }
+        self.inner.rng.reset()
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.inner.sample(self.inner.data)
+        let mut t = self.inner.data.clone()
+        t.sort()
+        self.inner.sample(t)
+    }
+
+    fn checksum(&self) -> u32 { self.inner.result }
+}

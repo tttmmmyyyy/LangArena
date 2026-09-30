@@ -504,11 +504,8 @@ ArithDecode::arith_decode(const ArithEncode::ArithEncodedResult &encoded) {
     uint64_t range = high - low + 1;
     uint64_t scaled = ((value - low + 1) * total - 1) / range;
 
-    uint8_t symbol = 0;
-    while (symbol < 255 &&
-           static_cast<uint64_t>(high_table[symbol]) <= scaled) {
-      symbol++;
-    }
+    auto it = std::upper_bound(high_table.begin(), high_table.end(), scaled);
+    uint8_t symbol = std::distance(high_table.begin(), it);
     result[j] = symbol;
 
     high = low + (range * high_table[symbol] / total) - 1;
@@ -642,7 +639,7 @@ LZWDecode::lzw_decode(const LZWEncode::LZWResult &encoded) {
     } else if (new_code == next_code) {
       new_str = dict[old_code] + dict[old_code][0];
     } else {
-      throw std::runtime_error("Error decode");
+      return {};
     }
 
     result.insert(result.end(), new_str.begin(), new_str.end());

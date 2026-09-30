@@ -77,6 +77,7 @@ void MazeGenerator::Maze::dig(Cell *start_cell) {
   if (!start_cell)
     return;
   std::vector<Cell *> stack;
+  stack.reserve(static_cast<size_t>(w) * static_cast<size_t>(h));
   stack.push_back(start_cell);
 
   while (!stack.empty()) {
@@ -97,28 +98,22 @@ void MazeGenerator::Maze::dig(Cell *start_cell) {
   }
 }
 
-void MazeGenerator::Maze::ensure_open_finish(Cell *start_cell) {
-  if (!start_cell)
+void MazeGenerator::Maze::ensure_open_finish(Cell *cell) {
+  if (!cell)
     return;
-  std::vector<Cell *> stack;
-  stack.push_back(start_cell);
+  cell->kind = CellKind::Space;
 
-  while (!stack.empty()) {
-    auto *cell = stack.back();
-    stack.pop_back();
-    cell->kind = CellKind::Space;
+  int walkable = 0;
+  for (auto *n : cell->neighbors)
+    if (n->is_walkable())
+      ++walkable;
 
-    int walkable = 0;
-    for (auto *n : cell->neighbors)
-      if (n->is_walkable())
-        ++walkable;
-    if (walkable > 1)
-      continue;
+  if (walkable > 1)
+    return;
 
-    for (auto *n : cell->neighbors)
-      if (n->kind == CellKind::Wall)
-        stack.push_back(n);
-  }
+  for (auto *n : cell->neighbors)
+    if (n->kind == CellKind::Wall)
+      ensure_open_finish(n);
 }
 
 void MazeGenerator::Maze::generate() {
@@ -186,6 +181,10 @@ void MazeGenerator::Maze::print_to_console() const {
 MazeGenerator::MazeGenerator() : result_val(0) {
   width = static_cast<int32_t>(config_val("w"));
   height = static_cast<int32_t>(config_val("h"));
+  if (width < 5)
+    width = 5;
+  if (height < 5)
+    height = 5;
   maze = std::make_unique<Maze>(width, height);
 }
 
@@ -204,6 +203,10 @@ uint32_t MazeGenerator::checksum() { return result_val + maze->checksum(); }
 MazeBFS::MazeBFS() : result_val(0) {
   width = static_cast<int32_t>(config_val("w"));
   height = static_cast<int32_t>(config_val("h"));
+  if (width < 5)
+    width = 5;
+  if (height < 5)
+    height = 5;
   maze = std::make_unique<MazeGenerator::Maze>(width, height);
 }
 
@@ -280,6 +283,10 @@ bool MazeAStar::Node::operator>(const Node &other) const {
 MazeAStar::MazeAStar() : result_val(0) {
   width = static_cast<int32_t>(config_val("w"));
   height = static_cast<int32_t>(config_val("h"));
+  if (width < 5)
+    width = 5;
+  if (height < 5)
+    height = 5;
   maze = std::make_unique<MazeGenerator::Maze>(width, height);
 }
 
@@ -307,6 +314,7 @@ MazeAStar::astar(MazeGenerator::Cell *start, MazeGenerator::Cell *target) {
   int target_idx = idx(target->y, target->x);
 
   std::priority_queue<Node, std::vector<Node>, std::greater<Node>> open_set;
+
   g_score[start_idx] = 0;
   int f_start = heuristic(start, target);
   open_set.push({f_start, start_idx});
@@ -315,6 +323,7 @@ MazeAStar::astar(MazeGenerator::Cell *start, MazeGenerator::Cell *target) {
   while (!open_set.empty()) {
     auto [f_val, current_idx] = open_set.top();
     open_set.pop();
+
     if (f_val != best_f[current_idx])
       continue;
 
@@ -344,6 +353,7 @@ MazeAStar::astar(MazeGenerator::Cell *start, MazeGenerator::Cell *target) {
         came_from[neighbor_idx] = current_idx;
         g_score[neighbor_idx] = tentative_g;
         int f_new = tentative_g + heuristic(neighbor, target);
+
         if (f_new < best_f[neighbor_idx]) {
           best_f[neighbor_idx] = f_new;
           open_set.push({f_new, neighbor_idx});

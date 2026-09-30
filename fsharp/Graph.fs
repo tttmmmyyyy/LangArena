@@ -96,26 +96,23 @@ module GraphAlgorithms =
                 if bestPath = INF then -1 else bestPath
 
     module AStar =
-        open System.Collections.Generic
-
         let heuristic (v: int) (target: int) = target - v
 
         let shortestPath (graph: Graph) start target =
             if start = target then
                 0
             else
-                let gScore = Array.create graph.Vertices INF
-                let fScore = Array.create graph.Vertices INF
-                let closed = Array.zeroCreate<byte> graph.Vertices
+                let n = graph.Vertices
+
+                let gScore = Array.create n INF
+                let bestF = Array.create n INF
 
                 gScore.[start] <- 0
-                fScore.[start] <- heuristic start target
+                let fStart = heuristic start target
+                bestF.[start] <- fStart
 
                 let openSet = PriorityQueue<int, int>()
-                let inOpenSet = Array.zeroCreate<byte> graph.Vertices
-
-                openSet.Enqueue(start, fScore.[start])
-                inOpenSet.[start] <- 1uy
+                openSet.Enqueue(start, fStart)
 
                 let mutable result = -1
                 let mutable found = false
@@ -123,25 +120,21 @@ module GraphAlgorithms =
                 while not found && openSet.Count > 0 do
 
                     let current = openSet.Dequeue()
-                    inOpenSet.[current] <- 0uy
 
                     if current = target then
                         result <- gScore.[current]
                         found <- true
                     else
-                        closed.[current] <- 1uy
-
                         for neighbor in graph.Adj.[current] do
-                            if closed.[neighbor] = 0uy then
-                                let tentativeG = gScore.[current] + 1
+                            let tentativeG = gScore.[current] + 1
 
-                                if tentativeG < gScore.[neighbor] then
-                                    gScore.[neighbor] <- tentativeG
-                                    fScore.[neighbor] <- tentativeG + heuristic neighbor target
+                            if tentativeG < gScore.[neighbor] then
+                                gScore.[neighbor] <- tentativeG
+                                let fNew = tentativeG + heuristic neighbor target
 
-                                    if inOpenSet.[neighbor] = 0uy then
-                                        openSet.Enqueue(neighbor, fScore.[neighbor])
-                                        inOpenSet.[neighbor] <- 1uy
+                                if fNew < bestF.[neighbor] then
+                                    bestF.[neighbor] <- fNew
+                                    openSet.Enqueue(neighbor, fNew)
 
                 result
 

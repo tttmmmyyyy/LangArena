@@ -2,26 +2,31 @@
 
 LANG_MASKS = {
   'c' => ['./c', ['.c', '.h'], ['target', 'deps'], 'clang-format -i --style="{InsertNewlineAtEOF: true}" $@'],
-  'c3' => ['./c3', ['.c3'], ['build'], 'true'],
+  'c3' => ['./c3', ['.c3'], ['build'], 'c3fmt -i $@'],
   'cpp' => ['./cpp', ['.cpp', '.hpp', '.h', '.cc', '.cxx'], ['target', 'deps'], "clang-format -i $@"],
   'golang' => ['./golang', ['.go'], ['target'], "go fmt $@"],
   'crystal' => ['./crystal', ['.cr'], ['target', 'lib'], "crystal tool format $@"],
+  'ruby' => ['./ruby', ['.rb'], [], "rubyfmt -i $@"],
   'rust' => ['./rust', ['.rs'], ['target'], "cargo fmt"],
   'csharp' => ['./csharp', ['.cs'], ['obj', 'bin'], "dotnet format"],
   'swift' => ['./swift', ['.swift'], ['.build', 'Package.swift'], "swift format format --in-place $@"],
   'java' => ['./java', ['.java'], ['target'], "astyle -n --mode=java $@"],
-  'kotlin' => ['./kotlin', ['.kt'], ['build', '.gradle', 'gradle'], "ktlint -F $@"],
-  'typescript' => ['./typescript', ['.ts', '.tsx'], ['node_modules', 'target'], "npx prettier --write $@"],
-  'zig' => ['./zig', ['.zig'], ['.zig-cache'], "zig fmt $@"],
+  'kotlin' => ['./kotlin', ['.kt'], ['build', '.gradle', 'gradle'], "ktlint -F src/**/*.kt"],
+  'typescript' => ['./typescript', ['.ts', '.tsx'], ['node_modules', 'target'], "npx oxfmt $@ < /dev/null"],
+  'zig' => ['./zig', ['.zig'], ['.zig-cache', 'zig-pkg'], "zig fmt $@"],
   'd' => ['./d', ['.d'], [], "dfmt --inplace $@"],
   'v' => ['./v', ['.v'], ['target'], "v fmt -w $@"],
   'julia' => ['./julia', ['.jl'], ['target'], "julia -e 'using Pkg; Pkg.add(\"JuliaFormatter\"); using JuliaFormatter; format(\".\")'"],
   'nim' => ['./nim', ['.nim'], ['target'], "nimpretty $@"],
-  'fsharp' => ['./fsharp', ['.fs'], ['bin', 'obj'], "dotnet fantomas $@"],
+  'fsharp' => ['./fsharp', ['.fs'], ['bin', 'obj'], "dotnet fantomas *.fs"],
   'dart' => ['./dart', ['.dart'], ['target'], "dart format $@"],
   'python' => ['./python', ['.py'], ['__pycache__'], "yapf --in-place --style=google $@"],
   'odin' => ['./odin', ['.odin'], ['target'], "odinfmt -w $@"],
-  'scala' => ['./scala', ['.scala'], ['target', 'project'], "\"/Users/kostya/Library/Application Support/Coursier/bin/scalafmt\" $@"],
+  'scala' => ['./scala', ['.scala'], ['target', 'project'], "\"/Users/kostya/Library/Application Support/Coursier/bin/scalafmt\" -i src/"],
+  'mojo' => ['./mojo', ['.mojo'], ['target', '.venv', '.pixi'], 'pixi run mojo format $@'],
+  'php' => ['./php', ['.php'], [], 'pretty-php $@'],
+  'gossamer' => ['./gossamer', ['.gos'], ['target', '.gos-cache'], 'gos fmt $@'],
+  'javascript' => ['./javascript', ['.js'], [], 'npx oxfmt $@ < /dev/null'],
   'fix' => ['./fix', ['.fix'], ['target', '.fixlang'], 'true'],
 }
 
@@ -29,8 +34,16 @@ def remove_comments(filepath, lang)
   content = File.read(filepath, encoding: 'utf-8')
   
   case lang
-  when 'c', 'cpp', 'golang', 'rust', 'csharp', 'swift', 'java', 'kotlin', 'd', 'v', 'fsharp', 'dart', 'zig', 'odin', 'scala', 'c3', 'fix'
+
+  when 'c', 'cpp', 'golang', 'rust', 'csharp', 'swift', 'java', 'kotlin', 'd', 'v', 
+    'fsharp', 'dart', 'zig', 'odin', 'scala', 'c3', 'php', 'gossamer', 'javascript', 'typescript', 'fix'
+
     lines = content.lines.map do |line|
+      if (line =~ %r{//\s*@ts-ignore}) || (line =~ %r{/[^/\n]*\\/[^/\n]*/})
+        puts "skipping like #{line.inspect}"
+        next line.rstrip 
+      end
+      
       in_string = false
       string_char = nil
       in_char = false
@@ -66,20 +79,15 @@ def remove_comments(filepath, lang)
     end
     
     content = lines.join("\n")
-    content.gsub!(/\/\*[\s\S]*?\*\//m, '')
-    
-  when 'typescript'
-    content.gsub!(/\/\*[\s\S]*?\*\//m, '')
-    content.gsub!(/^(\s*)\/\/\s*@ts-ignore.*$/) { |m| m }
-    content.gsub!(/^(\s*)\/\/[^\n]*$/) do |match|
-      if match.include?('@ts-ignore') || match.match?(/\/[gimsuy]+[,\]\)\}]?$/)
-        match
+    content.gsub!(/\/\*[\s\S]*?\*\//m) do |substr|
+      if substr.include?("//gi]],") || substr.include?("@ts-ignore") 
+        substr
       else
-        ''
+        ""
       end
     end
           
-  when 'crystal', 'julia', 'nim', 'python'
+  when 'crystal', 'julia', 'nim', 'python', 'ruby', 'mojo'
     content.gsub!(/^=begin[\s\S]*?^=end/m, '')
   
     lines = content.lines.map do |line|
@@ -129,6 +137,7 @@ def remove_comments(filepath, lang)
   
   File.write(filepath, content, encoding: 'utf-8')
 end
+
 def get_files(lang)
   dir, exts, excludes, _ = LANG_MASKS[lang]
   
@@ -170,11 +179,11 @@ LANG_MASKS.each do |lang, (dir, _, _, format_cmd)|
     if format_cmd.include?("$@")
       files.each do |filename|
         cmd = "#{format_cmd.gsub("$@", "'" + filename.gsub("#{dir}/", "") + "'")}"
-        `#{cmd}`
+        system cmd
       end
     else
       cmd = "#{format_cmd}"
-      `#{cmd}`
+      system cmd
     end
   end
   puts "in #{(Time.now - t).to_f.round(3)}s"

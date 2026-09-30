@@ -1,0 +1,4 @@
+#!/bin/sh
+rm -f ./target/release/gossamer
+gos build --release
+../xtime.rb ./target/release/gossamer ../run.js "$@"

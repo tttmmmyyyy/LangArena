@@ -45,11 +45,10 @@ class Maze {
     private final int width, height;
     public final MazeCell[][] cells;
     private final MazeCell start, finish;
-    private final Random random = new Random();
 
     public Maze(int w, int h) {
-        this.width = w;
-        this.height = h;
+        this.width = Math.max(w, 5);
+        this.height = Math.max(h, 5);
         this.cells = new MazeCell[height][width];
 
         for (int y = 0; y < height; y++) {
@@ -105,7 +104,7 @@ class Maze {
     }
 
     public void dig(MazeCell startCell) {
-        Deque<MazeCell> stack = new ArrayDeque<>();
+        Deque<MazeCell> stack = new ArrayDeque<>(width * height);
         stack.push(startCell);
 
         while (!stack.isEmpty()) {
@@ -129,27 +128,20 @@ class Maze {
         }
     }
 
-    public void ensureOpenFinish(MazeCell startCell) {
-        Deque<MazeCell> stack = new ArrayDeque<>();
-        stack.push(startCell);
+    public void ensureOpenFinish(MazeCell cell) {
+        cell.kind = MazeCellKind.SPACE;
 
-        while (!stack.isEmpty()) {
-            MazeCell cell = stack.pop();
+        int walkable = 0;
+        for (int i = 0; i < cell.neighborCount; i++) {
+            if (cell.neighbors[i].isWalkable()) walkable++;
+        }
 
-            cell.kind = MazeCellKind.SPACE;
+        if (walkable > 1) return;
 
-            int walkable = 0;
-            for (int i = 0; i < cell.neighborCount; i++) {
-                if (cell.neighbors[i].isWalkable()) walkable++;
-            }
-
-            if (walkable > 1) continue;
-
-            for (int i = 0; i < cell.neighborCount; i++) {
-                MazeCell n = cell.neighbors[i];
-                if (n.kind == MazeCellKind.WALL) {
-                    stack.push(n);
-                }
+        for (int i = 0; i < cell.neighborCount; i++) {
+            MazeCell n = cell.neighbors[i];
+            if (n.kind == MazeCellKind.WALL) {
+                ensureOpenFinish(n);
             }
         }
     }
@@ -280,6 +272,8 @@ class MazeBFS extends Benchmark {
     @Override
     public void prepare() {
         maze.generate();
+        resultVal = 0L;
+        path = new ArrayList<>();
     }
 
     private static class PathNode {
@@ -353,17 +347,18 @@ class MazeBFS extends Benchmark {
 }
 
 class MazeAStar extends Benchmark {
-    private static class PriorityQueueItem implements Comparable<PriorityQueueItem> {
+
+    private static class Item implements Comparable<Item> {
         int priority;
         int vertex;
 
-        PriorityQueueItem(int priority, int vertex) {
+        Item(int priority, int vertex) {
             this.priority = priority;
             this.vertex = vertex;
         }
 
         @Override
-        public int compareTo(PriorityQueueItem other) {
+        public int compareTo(Item other) {
             if (this.priority != other.priority)
                 return Integer.compare(this.priority, other.priority);
             return Integer.compare(this.vertex, other.vertex);
@@ -374,14 +369,12 @@ class MazeAStar extends Benchmark {
     private final int width, height;
     private final Maze maze;
     private List<MazeCell> path = new ArrayList<>();
-    private final int[] bestF;
 
     public MazeAStar() {
         this.width = (int) configVal("w");
         this.height = (int) configVal("h");
         this.maze = new Maze(width, height);
         this.resultVal = 0L;
-        this.bestF = new int[width * height];
     }
 
     @Override
@@ -392,7 +385,8 @@ class MazeAStar extends Benchmark {
     @Override
     public void prepare() {
         maze.generate();
-        Arrays.fill(bestF, Integer.MAX_VALUE);
+        resultVal = 0L;
+        path = new ArrayList<>();
     }
 
     private int heuristic(MazeCell a, MazeCell b) {
@@ -410,27 +404,24 @@ class MazeAStar extends Benchmark {
 
         int[] cameFrom = new int[size];
         int[] gScore = new int[size];
+        int[] bestF = new int[size];
         Arrays.fill(cameFrom, -1);
         Arrays.fill(gScore, Integer.MAX_VALUE);
+        Arrays.fill(bestF, Integer.MAX_VALUE);
 
         int startIdx = idx(start.y, start.x);
         int targetIdx = idx(target.y, target.x);
 
-        PriorityQueue<PriorityQueueItem> openSet = new PriorityQueue<>();
-
-        int[] bestF = new int[size];
-        Arrays.fill(bestF, Integer.MAX_VALUE);
+        PriorityQueue<Item> openSet = new PriorityQueue<>();
 
         gScore[startIdx] = 0;
         int fStart = heuristic(start, target);
-        openSet.offer(new PriorityQueueItem(fStart, startIdx));
+        openSet.add(new Item(fStart, startIdx));
         bestF[startIdx] = fStart;
 
         while (!openSet.isEmpty()) {
-            PriorityQueueItem item = openSet.poll();
+            Item item = openSet.poll();
             int currentIdx = item.vertex;
-
-            if (item.priority != bestF[currentIdx]) continue;
 
             if (currentIdx == targetIdx) {
                 List<MazeCell> result = new ArrayList<>();
@@ -464,7 +455,7 @@ class MazeAStar extends Benchmark {
 
                     if (fNew < bestF[neighborIdx]) {
                         bestF[neighborIdx] = fNew;
-                        openSet.offer(new PriorityQueueItem(fNew, neighborIdx));
+                        openSet.add(new Item(fNew, neighborIdx));
                     }
                 }
             }

@@ -6,6 +6,7 @@ import 'dart:isolate';
 import 'dart:async';
 import 'dart:collection';
 import 'package:csv/csv.dart';
+import 'package:collection/collection.dart';
 
 class Helper {
   static const int IM = 139968;
@@ -400,14 +401,15 @@ class TreeArena {
 
   int build(int item, int depth) {
     final idx = _nodes.length;
-    _nodes.add(TreeNodeArena(item));
+    final node = TreeNodeArena(item);
+    _nodes.add(node);
 
     if (depth > 0) {
       final shift = 1 << (depth - 1);
       final leftIdx = build(item - shift, depth - 1);
       final rightIdx = build(item + shift, depth - 1);
-      _nodes[idx].left = leftIdx;
-      _nodes[idx].right = rightIdx;
+      node.left = leftIdx;
+      node.right = rightIdx;
     }
 
     return idx;
@@ -460,6 +462,14 @@ class Tape {
 }
 
 class BrainfuckProgram {
+  static final int _leftBracket = '['.codeUnitAt(0);
+  static final int _rightBracket = ']'.codeUnitAt(0);
+  static final int _plus = '+'.codeUnitAt(0);
+  static final int _minus = '-'.codeUnitAt(0);
+  static final int _greater = '>'.codeUnitAt(0);
+  static final int _less = '<'.codeUnitAt(0);
+  static final int _dot = '.'.codeUnitAt(0);
+
   final Uint8List _commands;
   final List<int> _jumps;
 
@@ -484,9 +494,9 @@ class BrainfuckProgram {
 
     for (int i = 0; i < _commands.length; i++) {
       final cmd = _commands[i];
-      if (cmd == 91) {
+      if (cmd == _leftBracket) {
         stack.add(i);
-      } else if (cmd == 93 && stack.isNotEmpty) {
+      } else if (cmd == _rightBracket && stack.isNotEmpty) {
         final start = stack.removeLast();
         _jumps[start] = i;
         _jumps[i] = start;
@@ -504,32 +514,24 @@ class BrainfuckProgram {
     while (pc < commands.length) {
       final cmd = commands[pc];
 
-      switch (cmd) {
-        case 43:
-          tape.inc();
-          break;
-        case 45:
-          tape.dec();
-          break;
-        case 62:
-          tape.advance();
-          break;
-        case 60:
-          tape.devance();
-          break;
-        case 91:
-          if (tape.get() == 0) {
-            pc = jumps[pc];
-          }
-          break;
-        case 93:
-          if (tape.get() != 0) {
-            pc = jumps[pc];
-          }
-          break;
-        case 46:
-          result = ((result << 2) + tape.get()) & 0xFFFFFFFF;
-          break;
+      if (cmd == _plus) {
+        tape.inc();
+      } else if (cmd == _minus) {
+        tape.dec();
+      } else if (cmd == _greater) {
+        tape.advance();
+      } else if (cmd == _less) {
+        tape.devance();
+      } else if (cmd == _leftBracket) {
+        if (tape.get() == 0) {
+          pc = jumps[pc];
+        }
+      } else if (cmd == _rightBracket) {
+        if (tape.get() != 0) {
+          pc = jumps[pc];
+        }
+      } else if (cmd == _dot) {
+        result = ((result << 2) + tape.get()) & 0xFFFFFFFF;
       }
 
       pc++;
@@ -851,6 +853,7 @@ class Mandelbrot extends Benchmark {
     int byteAcc = 0;
 
     for (int y = 0; y < h; y++) {
+      final ci = (2.0 * y / h - 1.0);
       for (int x = 0; x < w; x++) {
         double zr = 0.0;
         double zi = 0.0;
@@ -858,7 +861,6 @@ class Mandelbrot extends Benchmark {
         double ti = 0.0;
 
         final cr = (2.0 * x / w - 1.5);
-        final ci = (2.0 * y / h - 1.0);
 
         int i = 0;
         while (i < ITER && (tr + ti) <= LIMIT * LIMIT) {
@@ -2225,74 +2227,10 @@ class GraphPathDFS extends GraphPathBenchmark {
   String get benchmarkName => 'Graph::DFS';
 }
 
-class PriorityQueueItem implements Comparable<PriorityQueueItem> {
+class PriorityQueueItem {
   final int vertex;
   final int priority;
   PriorityQueueItem(this.vertex, this.priority);
-
-  @override
-  int compareTo(PriorityQueueItem other) {
-    return priority.compareTo(other.priority);
-  }
-}
-
-class PriorityQueue<E extends Comparable<E>> {
-  final List<E> _heap = [];
-
-  int get length => _heap.length;
-  bool get isEmpty => _heap.isEmpty;
-  bool get isNotEmpty => _heap.isNotEmpty;
-
-  void add(E element) {
-    _heap.add(element);
-    _siftUp(_heap.length - 1);
-  }
-
-  E removeFirst() {
-    if (_heap.isEmpty) {
-      throw StateError("Cannot remove from empty priority queue");
-    }
-    final result = _heap[0];
-    final last = _heap.removeLast();
-    if (_heap.isNotEmpty) {
-      _heap[0] = last;
-      _siftDown(0);
-    }
-    return result;
-  }
-
-  void _siftUp(int index) {
-    final element = _heap[index];
-    while (index > 0) {
-      final parent = (index - 1) ~/ 2;
-      if (element.compareTo(_heap[parent]) >= 0) break;
-      _heap[index] = _heap[parent];
-      _heap[parent] = element;
-      index = parent;
-    }
-  }
-
-  void _siftDown(int index) {
-    final size = _heap.length;
-    final element = _heap[index];
-    while (true) {
-      final left = 2 * index + 1;
-      final right = left + 1;
-      var smallest = index;
-
-      if (left < size && _heap[left].compareTo(_heap[smallest]) < 0) {
-        smallest = left;
-      }
-      if (right < size && _heap[right].compareTo(_heap[smallest]) < 0) {
-        smallest = right;
-      }
-      if (smallest == index) break;
-
-      _heap[index] = _heap[smallest];
-      _heap[smallest] = element;
-      index = smallest;
-    }
-  }
 }
 
 class GraphPathAStar extends GraphPathBenchmark {
@@ -2306,41 +2244,37 @@ class GraphPathAStar extends GraphPathBenchmark {
   int _aStarShortestPath(int start, int target) {
     if (start == target) return 0;
 
-    final gScore = List<int>.filled(_graph.vertices, 0x7FFFFFFF);
-    final fScore = List<int>.filled(_graph.vertices, 0x7FFFFFFF);
-    final closed = Uint8List(_graph.vertices);
+    final n = _graph.vertices;
+
+    final gScore = List<int>.filled(n, 0x7FFFFFFF);
+    final bestF = List<int>.filled(n, 0x7FFFFFFF);
 
     gScore[start] = 0;
-    fScore[start] = _heuristic(start, target);
+    final fStart = _heuristic(start, target);
+    bestF[start] = fStart;
 
-    final openSet = PriorityQueue<PriorityQueueItem>();
-    final inOpenSet = Uint8List(_graph.vertices);
-
-    openSet.add(PriorityQueueItem(start, fScore[start]));
-    inOpenSet[start] = 1;
+    final openSet = PriorityQueue<PriorityQueueItem>(
+      (a, b) => a.priority.compareTo(b.priority),
+    );
+    openSet.add(PriorityQueueItem(start, fStart));
 
     while (openSet.isNotEmpty) {
       final current = openSet.removeFirst();
-      inOpenSet[current.vertex] = 0;
 
       if (current.vertex == target) {
         return gScore[current.vertex];
       }
 
-      closed[current.vertex] = 1;
-
       for (final neighbor in _graph.adj[current.vertex]) {
-        if (closed[neighbor] == 1) continue;
-
         final tentativeG = gScore[current.vertex] + 1;
 
         if (tentativeG < gScore[neighbor]) {
           gScore[neighbor] = tentativeG;
-          fScore[neighbor] = tentativeG + _heuristic(neighbor, target);
+          final fNew = tentativeG + _heuristic(neighbor, target);
 
-          if (inOpenSet[neighbor] == 0) {
-            openSet.add(PriorityQueueItem(neighbor, fScore[neighbor]));
-            inOpenSet[neighbor] = 1;
+          if (fNew < bestF[neighbor]) {
+            bestF[neighbor] = fNew;
+            openSet.add(PriorityQueueItem(neighbor, fNew));
           }
         }
       }
@@ -2591,6 +2525,26 @@ class CacheSimulation extends Benchmark {
   String get benchmarkName => 'Etc::CacheSimulation';
 }
 
+const CHAR_EOF = '\u0000';
+const CHAR_PLUS = '+';
+const CHAR_MINUS = '-';
+const CHAR_STAR = '*';
+const CHAR_SLASH = '/';
+const CHAR_PERCENT = '%';
+const CHAR_LPAREN = '(';
+const CHAR_RPAREN = ')';
+const CHAR_EQUALS = '=';
+const CHAR_ZERO = '0';
+const CHAR_NINE = '9';
+const CHAR_A_LOWER = 'a';
+const CHAR_Z_LOWER = 'z';
+const CHAR_A_UPPER = 'A';
+const CHAR_Z_UPPER = 'Z';
+const CHAR_SPACE = ' ';
+const CHAR_TAB = '\t';
+const CHAR_NEWLINE = '\n';
+const CHAR_CR = '\r';
+
 abstract class Node2 {}
 
 class NumberNode extends Node2 {
@@ -2625,27 +2579,32 @@ class Parser2 {
   final expressions = <Node2>[];
 
   Parser2(this.input) {
-    currentChar = input.isNotEmpty ? input[0] : '\0';
+    currentChar = input.isNotEmpty ? input[0] : CHAR_EOF;
   }
 
   void parse() {
-    while (pos < input.length) {
+    while (currentChar != CHAR_EOF) {
       skipWhitespace();
-      if (pos >= input.length) break;
+      if (currentChar == CHAR_EOF) break;
 
       final expr = parseExpression();
       expressions.add(expr);
+
+      skipWhitespace();
+      while (currentChar == CHAR_NEWLINE) {
+        advance();
+        skipWhitespace();
+      }
     }
   }
 
   Node2 parseExpression() {
     var node = parseTerm();
 
-    while (pos < input.length) {
+    while (true) {
       skipWhitespace();
-      if (pos >= input.length) break;
 
-      if (currentChar == '+' || currentChar == '-') {
+      if (currentChar == CHAR_PLUS || currentChar == CHAR_MINUS) {
         final op = currentChar;
         advance();
         final right = parseTerm();
@@ -2661,11 +2620,12 @@ class Parser2 {
   Node2 parseTerm() {
     var node = parseFactor();
 
-    while (pos < input.length) {
+    while (true) {
       skipWhitespace();
-      if (pos >= input.length) break;
 
-      if (currentChar == '*' || currentChar == '/' || currentChar == '%') {
+      if (currentChar == CHAR_STAR ||
+          currentChar == CHAR_SLASH ||
+          currentChar == CHAR_PERCENT) {
         final op = currentChar;
         advance();
         final right = parseFactor();
@@ -2680,33 +2640,30 @@ class Parser2 {
 
   Node2 parseFactor() {
     skipWhitespace();
-    if (pos >= input.length) {
-      return NumberNode(0);
-    }
 
-    final char = currentChar;
-
-    if (_isDigit(char)) {
+    if (_isDigit(currentChar)) {
       return parseNumber();
-    } else if (_isLetter(char)) {
+    } else if (_isLetter(currentChar)) {
       return parseVariable();
-    } else if (char == '(') {
+    } else if (currentChar == CHAR_LPAREN) {
       advance();
       final node = parseExpression();
       skipWhitespace();
-      if (currentChar == ')') {
+      if (currentChar == CHAR_RPAREN) {
         advance();
       }
       return node;
     } else {
+      advance();
       return NumberNode(0);
     }
   }
 
   NumberNode parseNumber() {
     var value = 0;
-    while (pos < input.length && _isDigit(currentChar)) {
-      value = value * 10 + (currentChar.codeUnitAt(0) - 48);
+    while (_isDigit(currentChar)) {
+      value =
+          value * 10 + (currentChar.codeUnitAt(0) - CHAR_ZERO.codeUnitAt(0));
       advance();
     }
     return NumberNode(value);
@@ -2714,15 +2671,14 @@ class Parser2 {
 
   Node2 parseVariable() {
     final start = pos;
-    while (pos < input.length &&
-        (_isLetter(currentChar) || _isDigit(currentChar))) {
+    while (_isLetter(currentChar) || _isDigit(currentChar)) {
       advance();
     }
 
     final varName = input.substring(start, pos);
 
     skipWhitespace();
-    if (currentChar == '=') {
+    if (currentChar == CHAR_EQUALS) {
       advance();
       final expr = parseExpression();
       return AssignmentNode(varName, expr);
@@ -2734,27 +2690,28 @@ class Parser2 {
   void advance() {
     pos++;
     if (pos >= input.length) {
-      currentChar = '\0';
+      currentChar = CHAR_EOF;
     } else {
       currentChar = input[pos];
     }
   }
 
   void skipWhitespace() {
-    while (pos < input.length && _isWhitespace(currentChar)) {
+    while (_isWhitespace(currentChar)) {
       advance();
     }
   }
 
-  bool _isDigit(String ch) => ch.codeUnitAt(0) >= 48 && ch.codeUnitAt(0) <= 57;
-
-  bool _isLetter(String ch) {
-    final code = ch.codeUnitAt(0);
-    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-  }
-
+  bool _isDigit(String ch) =>
+      ch.codeUnitAt(0) >= CHAR_ZERO.codeUnitAt(0) &&
+      ch.codeUnitAt(0) <= CHAR_NINE.codeUnitAt(0);
+  bool _isLetter(String ch) =>
+      (ch.codeUnitAt(0) >= CHAR_A_LOWER.codeUnitAt(0) &&
+          ch.codeUnitAt(0) <= CHAR_Z_LOWER.codeUnitAt(0)) ||
+      (ch.codeUnitAt(0) >= CHAR_A_UPPER.codeUnitAt(0) &&
+          ch.codeUnitAt(0) <= CHAR_Z_UPPER.codeUnitAt(0));
   bool _isWhitespace(String ch) =>
-      ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
+      ch == CHAR_SPACE || ch == CHAR_TAB || ch == CHAR_NEWLINE || ch == CHAR_CR;
 }
 
 class CalculatorAst extends Benchmark {
@@ -3092,73 +3049,6 @@ class GameOfLife extends Benchmark {
   String get benchmarkName => 'Etc::GameOfLife';
 }
 
-enum CellKind {
-  wall(0),
-  space(1),
-  start(2),
-  finish(3),
-  border(4),
-  path(5);
-
-  const CellKind(this.value);
-  final int value;
-}
-
-class Cell {
-  CellKind kind;
-  List<Cell> neighbors;
-  int x;
-  int y;
-
-  Cell(this.x, this.y)
-      : kind = CellKind.wall,
-        neighbors = [];
-
-  bool isWalkable() {
-    return kind == CellKind.space ||
-        kind == CellKind.start ||
-        kind == CellKind.finish;
-  }
-
-  void dig() {
-    int walkableNeighbors = 0;
-    for (int i = 0; i < neighbors.length; i++) {
-      if (neighbors[i].isWalkable()) walkableNeighbors++;
-    }
-    if (walkableNeighbors != 1) return;
-
-    kind = CellKind.space;
-
-    for (int i = 0; i < neighbors.length; i++) {
-      if (neighbors[i].kind == CellKind.wall) {
-        neighbors[i].dig();
-      }
-    }
-  }
-
-  void ensureOpenFinish() {
-    kind = CellKind.space;
-
-    int walkableNeighbors = 0;
-    for (int i = 0; i < neighbors.length; i++) {
-      if (neighbors[i].isWalkable()) walkableNeighbors++;
-    }
-    if (walkableNeighbors > 1) return;
-
-    for (int i = 0; i < neighbors.length; i++) {
-      if (neighbors[i].kind == CellKind.wall) {
-        neighbors[i].ensureOpenFinish();
-      }
-    }
-  }
-
-  void reset() {
-    if (kind == CellKind.space) {
-      kind = CellKind.wall;
-    }
-  }
-}
-
 enum MazeCellKind {
   wall(0),
   space(1),
@@ -3216,12 +3106,6 @@ class Maze {
   }
 
   void updateNeighbors() {
-    for (var row in cells) {
-      for (var cell in row) {
-        cell.neighbors.clear();
-      }
-    }
-
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
         var cell = cells[y][x];
@@ -3282,26 +3166,19 @@ class Maze {
     }
   }
 
-  void ensureOpenFinish(MazeCell startCell) {
-    List<MazeCell> stack = [];
-    stack.add(startCell);
+  void ensureOpenFinish(MazeCell cell) {
+    cell.kind = MazeCellKind.space;
 
-    while (stack.isNotEmpty) {
-      var cell = stack.removeLast();
+    int walkable = 0;
+    for (var n in cell.neighbors) {
+      if (n.kind.isWalkable) walkable++;
+    }
 
-      cell.kind = MazeCellKind.space;
+    if (walkable > 1) return;
 
-      int walkable = 0;
-      for (var n in cell.neighbors) {
-        if (n.kind.isWalkable) walkable++;
-      }
-
-      if (walkable > 1) continue;
-
-      for (var n in cell.neighbors) {
-        if (n.kind == MazeCellKind.wall) {
-          stack.add(n);
-        }
+    for (var n in cell.neighbors) {
+      if (n.kind == MazeCellKind.wall) {
+        ensureOpenFinish(n);
       }
     }
   }
@@ -3375,21 +3252,6 @@ class _BfsPathNode {
   _BfsPathNode(this.cell, this.parent);
 }
 
-class _AStarItem implements Comparable<_AStarItem> {
-  final int priority;
-  final int vertex;
-
-  _AStarItem(this.priority, this.vertex);
-
-  @override
-  int compareTo(_AStarItem other) {
-    if (priority != other.priority) {
-      return priority.compareTo(other.priority);
-    }
-    return vertex.compareTo(other.vertex);
-  }
-}
-
 class MazeGenerator extends Benchmark {
   late final int width;
   late final int height;
@@ -3440,6 +3302,8 @@ class MazeBFS extends Benchmark {
   @override
   void prepare() {
     maze.generate();
+    resultVal = 0;
+    path = [];
   }
 
   List<MazeCell> bfs(MazeCell start, MazeCell target) {
@@ -3496,6 +3360,12 @@ class MazeBFS extends Benchmark {
   }
 }
 
+class _AStarEntry {
+  final int priority;
+  final int vertex;
+  _AStarEntry(this.priority, this.vertex);
+}
+
 class MazeAStar extends Benchmark {
   late final int width;
   late final int height;
@@ -3515,6 +3385,8 @@ class MazeAStar extends Benchmark {
   @override
   void prepare() {
     maze.generate();
+    resultVal = 0;
+    path = [];
   }
 
   int heuristic(MazeCell a, MazeCell b) {
@@ -3535,19 +3407,18 @@ class MazeAStar extends Benchmark {
     int startIdx = idx(start.y, start.x);
     int targetIdx = idx(target.y, target.x);
 
-    var openSet = PriorityQueue<_AStarItem>();
-    var inOpen = List<bool>.filled(size, false);
+    var openSet = PriorityQueue<_AStarEntry>(
+      (a, b) => a.priority.compareTo(b.priority),
+    );
 
     gScore[startIdx] = 0;
     int fStart = heuristic(start, target);
-    openSet.add(_AStarItem(fStart, startIdx));
+    openSet.add(_AStarEntry(fStart, startIdx));
     bestF[startIdx] = fStart;
-    inOpen[startIdx] = true;
 
     while (openSet.isNotEmpty) {
-      var current = openSet.removeFirst();
-      int currentIdx = current.vertex;
-      inOpen[currentIdx] = false;
+      var entry = openSet.removeFirst();
+      int currentIdx = entry.vertex;
 
       if (currentIdx == targetIdx) {
         var result = <MazeCell>[];
@@ -3579,8 +3450,7 @@ class MazeAStar extends Benchmark {
 
           if (fNew < bestF[neighborIdx]) {
             bestF[neighborIdx] = fNew;
-            openSet.add(_AStarItem(fNew, neighborIdx));
-            inOpen[neighborIdx] = true;
+            openSet.add(_AStarEntry(fNew, neighborIdx));
           }
         }
       }
@@ -3620,6 +3490,13 @@ class BWTResult {
   final int originalIdx;
 
   BWTResult(this.transformed, this.originalIdx);
+}
+
+class BWTPair {
+  final int first;
+  final int second;
+
+  BWTPair(this.first, this.second);
 }
 
 class BWTEncode extends Benchmark {
@@ -3665,25 +3542,24 @@ class BWTEncode extends Benchmark {
 
       int k = 1;
       while (k < n) {
+        List<BWTPair> pairs =
+            List.generate(n, (i) => BWTPair(rank[i], rank[(i + k) % n]));
+
         sa.sort((a, b) {
-          int ra = rank[a];
-          int rb = rank[b];
-          if (ra != rb) return ra - rb;
-          int rak = rank[(a + k) % n];
-          int rbk = rank[(b + k) % n];
-          return rak - rbk;
+          var pa = pairs[a];
+          var pb = pairs[b];
+          if (pa.first != pb.first) return pa.first - pb.first;
+          return pa.second - pb.second;
         });
 
         List<int> newRank = List<int>.filled(n, 0);
         newRank[sa[0]] = 0;
         for (int i = 1; i < n; i++) {
-          int prevIdx = sa[i - 1];
-          int currIdx = sa[i];
-          newRank[currIdx] = newRank[prevIdx] +
-              ((rank[prevIdx] != rank[currIdx] ||
-                      rank[(prevIdx + k) % n] != rank[(currIdx + k) % n])
-                  ? 1
-                  : 0);
+          var prevPair = pairs[sa[i - 1]];
+          var currPair = pairs[sa[i]];
+          bool same = prevPair.first == currPair.first &&
+              prevPair.second == currPair.second;
+          newRank[sa[i]] = newRank[sa[i - 1]] + (same ? 0 : 1);
         }
 
         rank = newRank;
@@ -4243,10 +4119,17 @@ class ArithDecode extends Benchmark {
       int range = high - low + 1;
       int scaled = ((value - low + 1) * total - 1) ~/ range;
 
-      int symbol = 0;
-      while (symbol < 255 && highTable[symbol] <= scaled) {
-        symbol++;
+      int left = 0;
+      int right = 256;
+      while (left < right) {
+        int mid = (left + right) >> 1;
+        if (highTable[mid] <= scaled) {
+          left = mid + 1;
+        } else {
+          right = mid;
+        }
       }
+      int symbol = left;
 
       result[j] = symbol;
 
@@ -4423,7 +4306,7 @@ class LZWDecode extends Benchmark {
       } else if (newCode == nextCode) {
         newStr = oldStr + oldStr[0];
       } else {
-        throw Exception("Error decode");
+        return Uint8List(0);
       }
 
       result.add(newStr.codeUnits);
@@ -4616,10 +4499,11 @@ class NGram extends Benchmark {
     var grams1 = <int, int>{};
 
     for (int i = 0; i <= bytes1.length - N; i++) {
-      int gram = (bytes1[i] << 24) |
-          (bytes1[i + 1] << 16) |
-          (bytes1[i + 2] << 8) |
-          bytes1[i + 3];
+      int gram = ((bytes1[i] << 24) |
+              (bytes1[i + 1] << 16) |
+              (bytes1[i + 2] << 8) |
+              bytes1[i + 3]) &
+          0xFFFFFFFF;
 
       grams1[gram] = (grams1[gram] ?? 0) + 1;
     }
@@ -4628,10 +4512,11 @@ class NGram extends Benchmark {
     int intersection = 0;
 
     for (int i = 0; i <= bytes2.length - N; i++) {
-      int gram = (bytes2[i] << 24) |
-          (bytes2[i + 1] << 16) |
-          (bytes2[i + 2] << 8) |
-          bytes2[i + 3];
+      int gram = ((bytes2[i] << 24) |
+              (bytes2[i + 1] << 16) |
+              (bytes2[i + 2] << 8) |
+              bytes2[i + 3]) &
+          0xFFFFFFFF;
 
       grams2[gram] = (grams2[gram] ?? 0) + 1;
 
@@ -5138,7 +5023,7 @@ class CsvParse extends Benchmark {
 
   @override
   int checksum() {
-    return resultValue & 0xFFFFFFFF;
+    return (resultValue + Helper.checksumString(data)) & 0xFFFFFFFF;
   }
 }
 

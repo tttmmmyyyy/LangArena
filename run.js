@@ -83,7 +83,7 @@
   },
   {
     "name": "CSV::Parse",
-    "checksum": 194814688,
+    "checksum": 1071523081,
     "rows": 100000,
     "iterations": 70
   },
@@ -287,9 +287,9 @@
   },
   {
     "name": "Compress::ArithDecode",
-    "checksum": 26501320,
+    "checksum": 42102100,
     "size": 100005,
-    "iterations": 220
+    "iterations": 350
   },
   {
     "name": "Compress::LZWEncode",

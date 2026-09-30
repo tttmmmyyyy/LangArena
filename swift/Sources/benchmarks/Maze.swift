@@ -1,3 +1,4 @@
+import Collections
 import Foundation
 
 enum CellKind: Int {
@@ -67,7 +68,6 @@ final class Maze {
     for y in 0..<height {
       for x in 0..<width {
         let cell = cells[y][x]
-        cell.neighbors.removeAll()
 
         if x > 0 && y > 0 && x < width - 1 && y < height - 1 {
           cell.neighbors.append(cells[y - 1][x])
@@ -113,40 +113,36 @@ final class Maze {
         }
       }
 
-      if walkable == 1 {
-        cell.kind = .space
-        for n in cell.neighbors {
-          if n.kind == .wall {
-            stack.append(n)
-          }
+      if walkable != 1 {
+        continue
+      }
+
+      cell.kind = .space
+      for n in cell.neighbors {
+        if n.kind == .wall {
+          stack.append(n)
         }
       }
     }
   }
 
-  func ensureOpenFinish(startCell: Cell) {
-    var stack: [Cell] = []
-    stack.reserveCapacity(width * height)
-    stack.append(startCell)
+  func ensureOpenFinish(cell: Cell) {
+    cell.kind = .space
 
-    while let cell = stack.popLast() {
-      cell.kind = .space
-
-      var walkable = 0
-      for n in cell.neighbors {
-        if n.kind.isWalkable {
-          walkable += 1
-        }
+    var walkable = 0
+    for n in cell.neighbors {
+      if n.kind.isWalkable {
+        walkable += 1
       }
+    }
 
-      if walkable > 1 {
-        continue
-      }
+    if walkable > 1 {
+      return
+    }
 
-      for n in cell.neighbors {
-        if n.kind == .wall {
-          stack.append(n)
-        }
+    for n in cell.neighbors {
+      if n.kind == .wall {
+        ensureOpenFinish(cell: n)
       }
     }
   }
@@ -157,7 +153,7 @@ final class Maze {
     }
 
     for n in finish.neighbors where n.kind == .wall {
-      ensureOpenFinish(startCell: n)
+      ensureOpenFinish(cell: n)
     }
   }
 
@@ -318,82 +314,28 @@ final class MazeBFS: BenchmarkProtocol {
   }
 }
 
+struct AStarEntry: Comparable {
+  let priority: Int
+  let vertex: Int
+
+  static func < (lhs: AStarEntry, rhs: AStarEntry) -> Bool {
+    if lhs.priority != rhs.priority {
+      return lhs.priority < rhs.priority
+    }
+    return lhs.vertex < rhs.vertex
+  }
+
+  static func == (lhs: AStarEntry, rhs: AStarEntry) -> Bool {
+    lhs.priority == rhs.priority && lhs.vertex == rhs.vertex
+  }
+}
+
 final class MazeAStar: BenchmarkProtocol {
   private var resultVal: UInt32 = 0
   private var width: Int = 0
   private var height: Int = 0
   private var maze: Maze?
   private var path: [Cell] = []
-
-  private struct PriorityQueue {
-    private var vertices: [Int]
-    private var priorities: [Int]
-    private var size: Int
-
-    init(capacity: Int) {
-      vertices = [Int](repeating: 0, count: capacity)
-      priorities = [Int](repeating: 0, count: capacity)
-      size = 0
-    }
-
-    mutating func push(vertex: Int, priority: Int) {
-      if size >= vertices.count {
-        vertices.append(0)
-        priorities.append(0)
-      }
-
-      var i = size
-      size += 1
-      vertices[i] = vertex
-      priorities[i] = priority
-
-      while i > 0 {
-        let parent = (i - 1) / 2
-        if priorities[parent] <= priorities[i] {
-          break
-        }
-        vertices.swapAt(i, parent)
-        priorities.swapAt(i, parent)
-        i = parent
-      }
-    }
-
-    mutating func pop() -> Int? {
-      if size == 0 { return nil }
-
-      let result = vertices[0]
-      size -= 1
-
-      if size > 0 {
-        vertices[0] = vertices[size]
-        priorities[0] = priorities[size]
-
-        var i = 0
-        while true {
-          let left = 2 * i + 1
-          let right = 2 * i + 2
-          var smallest = i
-
-          if left < size && priorities[left] < priorities[smallest] {
-            smallest = left
-          }
-          if right < size && priorities[right] < priorities[smallest] {
-            smallest = right
-          }
-          if smallest == i {
-            break
-          }
-          vertices.swapAt(i, smallest)
-          priorities.swapAt(i, smallest)
-          i = smallest
-        }
-      }
-
-      return result
-    }
-
-    var isEmpty: Bool { return size == 0 }
-  }
 
   init() {
     width = Int(configValue("w") ?? 50)
@@ -428,18 +370,16 @@ final class MazeAStar: BenchmarkProtocol {
     let startIdx = idx(y: start.y, x: start.x)
     let targetIdx = idx(y: target.y, x: target.x)
 
-    var openSet = PriorityQueue(capacity: size)
-    var inOpen = [Bool](repeating: false, count: size)
+    var openSet = Heap<AStarEntry>(minimumCapacity: size)
 
     gScore[startIdx] = 0
     let fStart = heuristic(a: start, b: target)
-    openSet.push(vertex: startIdx, priority: fStart)
+    openSet.insert(AStarEntry(priority: fStart, vertex: startIdx))
     bestF[startIdx] = fStart
-    inOpen[startIdx] = true
 
     while !openSet.isEmpty {
-      guard let currentIdx = openSet.pop() else { break }
-      inOpen[currentIdx] = false
+      guard let entry = openSet.popMin() else { break }
+      let currentIdx = entry.vertex
 
       if currentIdx == targetIdx {
         var result: [Cell] = []
@@ -473,8 +413,7 @@ final class MazeAStar: BenchmarkProtocol {
 
           if fNew < bestF[neighborIdx] {
             bestF[neighborIdx] = fNew
-            openSet.push(vertex: neighborIdx, priority: fNew)
-            inOpen[neighborIdx] = true
+            openSet.insert(AStarEntry(priority: fNew, vertex: neighborIdx))
           }
         }
       }

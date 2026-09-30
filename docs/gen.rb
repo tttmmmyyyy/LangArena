@@ -51,7 +51,6 @@ class Gen
     end
 
     if @j["#{@tests[0]}-runtime"].size != @runs_all.size
-      puts "WARNING NOT FULL, Adjust"
       @runs_prod &= @j["#{@tests[0]}-runtime"].keys
       @runs_all &= @j["#{@tests[0]}-runtime"].keys
     end
@@ -62,16 +61,20 @@ class Gen
   end
 
   def check_missing
+    bad = 0
     @tests.each do |test|
       @runs_all.each do |run|
-        if !@j["#{test}-runtime"][run] || @j["#{test}-runtime"][run].is_a?(String)
-          if @runs_prod.include?(run)
-            puts "Warning Missing PROD #{run}:#{test}"
-          else
-            puts "Warning Missing HACK #{run}:#{test}"
+        ["#{test}-runtime", "#{test}-mem-mb"].each do |key|
+          if !@j[key][run] || @j[key][run].is_a?(String)
+            puts "ERROR MISSING #{key.inspect}:#{run.inspect}"
+            bad += 1
           end
         end
       end
+    end
+    if bad > 0
+      puts "ERROR: results file(#{FILENAME}) contain errors described above, usually this means that test is crashed and need to edit this line manually or rerun"
+      exit 1
     end
   end
 
@@ -86,6 +89,13 @@ class Gen
     <strong>Matmul::T4/T8/T16</strong> — multi-threaded versions (4/8/16 threads).<br>
     <br>
     Heatmap visualization: greener = faster, redder = slower (relative performance within each benchmark).
+
+<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px 15px; margin: 10px 0; border-radius: 4px;">
+  <strong>Note on <code>Mojo</code>:</strong> this is a young language, and many tests use Python interop instead of native implementations, simply because I can't compile libraries for JSON, Regex, Csv or implement certain tasks better due to missing language features. Performance is still very raw.
+</div>
+<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px 15px; margin: 10px 0; border-radius: 4px;">
+  <strong>Note on <code>Go</code>:</strong> Go suffers from regex benchmarks — see my <a href="https://www.reddit.com/r/golang/comments/1rr2evh/why_is_gos_regex_so_slow/">post</a> on this.
+</div>
     DESC
 
     t
@@ -168,8 +178,6 @@ class Gen
     }
     t[:description] = <<-DESC
 This table shows normalized runtime performance rankings from 0 to 100 for each benchmark.<br>
-<br>
-Each cell contains a score from 0 (slowest) to 100 (fastest) relative to other languages in that specific test.<br>
 <br>
 <strong>Scoring Formula:</strong><br>
 • <strong>100 points</strong> - fastest implementation in the test<br>
@@ -312,8 +320,12 @@ This table compares how concisely different programming languages express the sa
       unless @j["build-cmd"][run] == "true"
         a << run
         a << format_float(@j['compile-time-cold'][run])
+        a << format_float(@j['compile-usertime-cold'][run])
+        a << format_float(@j['compile-systemtime-cold'][run])
         a << format_float(@j['compile-memory-cold'][run])
         a << format_float(@j['compile-time-incremental'][run])
+        a << format_float(@j['compile-usertime-incremental'][run])
+        a << format_float(@j['compile-systemtime-incremental'][run])
         a << format_float(@j['compile-memory-incremental'][run])
         a << format_float(@j['binary-size-kb'][run] / 1024.0)
         m << a
@@ -321,7 +333,7 @@ This table compares how concisely different programming languages express the sa
     end
 
     m.sort_by! do |line|
-      line[3]
+      line[1]
     end
 
     m2 = []
@@ -334,15 +346,28 @@ This table compares how concisely different programming languages express the sa
     desc = <<-DESC
     Shows project compilation/build times IN PRODUCTION MODE<br><br>
 
-    <strong>Time Cold</strong> - full compilation time with cleaned build cache (worst-case scenario)<br>
-    <strong>Time Incremental</strong> - compilation time with only 1 file changed (best-case scenario)<br>
-    <strong>Binary size</strong> - size of compiled output (JAR for Java, JS bundle for TypeScript, executable for native languages, etc.)<br><br>
+    Build performance metrics (lower = better)<br><br>
+    <b>Cold</b> - clean full build (deps fetch excluded)<br>
+    <b>Inc</b> - incremental build (1 file changed)<br><br>
+    <b>WallTime</b> - real elapsed time, seconds<br>
+    <b>UserTime</b> - CPU user time, seconds<br>
+    <b>SysTime</b> - CPU kernel time, seconds (I/O, syscalls)<br>
+    <b>RSS</b> - peak memory usage, Mb<br>
+    <b>Binary size</b> - output size, Mb<br><br>
 
-    All times are in seconds (lower = better)<br>
-    Binary size is in megabytes (lower = better)<br><br>
+    <strong>Tips:</strong><br>
+    • WallTime - time you're waiting<br>
+    • If UserTime >> WallTime - build uses parallel compilation (good!)<br>
+    • If UserTime == WallTime - build is mostly single-threaded<br>
+    • If SysTime is high - likely I/O or network activity<br>
     DESC
 
-    {map: m2, left_header: left_header, up_header: ["Time Cold, s", "Memory Peak Cold, Mb", "Time Incremental, s", "Memory Peak Incremental, Mb", "Binary size, Mb"], lang: :left, first_row: "Run", description: desc}
+    header = [
+      "Cold WallTime, s", "Cold UserTime, s", "Cold SysTime, s", "Cold RSS, Mb", 
+      "Inc WallTime, s", "Inc UserTime, s", "Inc SysTime, s", "Inc RSS, Mb",
+      "Binary size, Mb"
+    ]
+    {map: m2, left_header: left_header, up_header: header, lang: :left, first_row: "Run", description: desc}
   end
 
   def compile_by_lang
@@ -386,7 +411,7 @@ This table compares how concisely different programming languages express the sa
     wins = _vert(b[:map], b[:up_header].index("Wins Count")).map { |s| s =~ /([0-9\.]+)/; $1.to_i }
     wins = b[:left_header].zip(wins).sort_by { |lang, win| -win }.map { |a, v| [a, "#{v}"] }
 
-    ct = _vert(b[:map], b[:up_header].index("Compile Time Inc, s")).map { |s| s =~ /([0-9\.]+)/; $1 == nil ? 100000 : $1.to_f.round(1) }
+    ct = _vert(b[:map], b[:up_header].index("Cold WallTime, s")).map { |s| s =~ /([0-9\.]+)/; $1 == nil ? 100000 : $1.to_f.round(1) }
     ct = b[:left_header].zip(ct).sort_by { |lang, v| v }.map { |a, v| [a, "#{v}s"] }
 
     exp = _vert(b[:map], b[:up_header].index("Expressiveness")).map { |s| s =~ /([\-0-9\.]+)/; $1.to_f.round(1) }
@@ -696,14 +721,14 @@ DESC
 
     h = Hash.new(0.0)
     runs.each do |run|
-      h[run] = @j['compile-time-incremental'][run]
+      h[run] = @j['compile-time-cold'][run]
     end
     min = h.min_by { |k, v| v }[1]
 
-    up_header << "Compile Time Inc, s"
+    up_header << "Cold WallTime, s"
     runs.each do |run|
       unless @j["build-cmd"][run] == "true"
-        result[_lang_for run] << format_float(@j['compile-time-incremental'][run])
+        result[_lang_for run] << format_float(@j['compile-time-cold'][run])
       else
         result[_lang_for run] << '-'
       end
@@ -711,14 +736,14 @@ DESC
 
     h = Hash.new(0.0)
     runs.each do |run|
-      h[run] = @j['compile-memory-incremental'][run]
+      h[run] = @j['compile-memory-cold'][run]
     end
     min = h.min_by { |k, v| v }[1]
 
-    up_header << "Compile Memory Inc, Mb"
+    up_header << "Cold RSS, Mb"
     runs.each do |run|
       unless @j["build-cmd"][run] == "true"
-        result[_lang_for run] << format_float(@j['compile-memory-incremental'][run])
+        result[_lang_for run] << format_float(@j['compile-memory-cold'][run])
       else
         result[_lang_for run] << '-'
       end
@@ -776,12 +801,12 @@ DESC
     end
   end
 
-  def hacking
+  def hacking(key = 'runtime')
     res = {}
     @langs.each do |lang|
       runs = @runs_all.select { |run| _lang_for(run) == lang }
       next if runs.empty?
-      res[lang] = main_table('runtime', runs)
+      res[lang] = main_table(key, runs)
       desc = <<-DESC
 This table shows special "hacked" configurations — excluded from official rankings. <br>
 Shows how optimization flags affect performance. <br>
@@ -804,6 +829,47 @@ DESC
     end
 
     res
+  end
+
+  def hacking_data(field)
+    runs = @runs_all
+    summaries = Array.new(runs.size, 0.0)
+
+    m = @tests.map do |test|
+      i = -1
+      runs.map do |run|
+        i += 1
+
+        if @j["#{test}-#{field}"][run]
+          v = @j["#{test}-#{field}"][run]
+          summaries[i] += v
+          format_float v
+        else
+          nil
+        end        
+      end
+    end
+
+    summary = {}
+    if field == 'runtime'
+      summary['desc'] = "Summary"
+      summary['data'] = summaries.map { |v| format_float v }
+    else
+      summary['desc'] = "Average"
+      summary['data'] = summaries.map { |s| s / @tests.size }.map { |v| format_float v }
+    end
+
+    {up_header: runs, summary: summary}
+  end
+
+  def hacking_data_rtscore
+    t = runtime_table_rel(@runs_all)
+    t.delete(:map)
+    t.delete(:description)
+    t.delete(:left_header)
+    t.delete(:lang)
+    t.delete(:first_row)
+    t
   end
 
   def history(runs = @runs_prod)
@@ -869,8 +935,7 @@ DESC
     return unless hist
     field = 'runtime'
 
-    summaries1 = Array.new(@runs_prod.size, 0.0)
-    summaries2 = Array.new(@runs_prod.size, 0.0)
+    sums = Array.new(@runs_prod.size, 0.0)
 
     m = @tests.map do |test|
       k = -1
@@ -879,15 +944,14 @@ DESC
         if @j["#{test}-#{field}"][run]
           v = @j["#{test}-#{field}"][run]
 
-          summaries2[k] += v
-
           if (rt = hist["#{test}-#{field}"]) && rt[run]
-            summaries1[k] += rt[run]
             diff = v - rt[run]
-            v = (diff / v.to_f) * 100
+            v = (diff / rt[run].to_f) * 100
           else
             v = 100
           end
+
+          sums[k] += v
 
           v.round(1)
         else
@@ -906,16 +970,10 @@ DESC
         </p>
       DESC
     end
-    summary_data = summaries2.each_with_index.map do |s2, i| 
-      s1 = summaries1[i]
-      if s1 == 0
-        100
-      else
-        diff = s2 - s1
-        (diff / s1 * 100).round(1)
-      end
+    sums.map! do |v|
+      (v / @tests.size).round(1)
     end
-    summary = {desc: 'Summary, %', data: summary_data }
+    summary = {desc: 'Average, %', data: sums }
     {map: m, up_header: @runs_prod, left_header: @tests, summary: summary, lang: :up, description: desc, first_row: "Test"}
   end
 
@@ -945,6 +1003,9 @@ DESC
       'compile_by_lang': compile_by_lang,
 
       'hacking': hacking,
+      'hacking_data_runtime': hacking_data('runtime'),
+      'hacking_data_rtscore': hacking_data_rtscore,
+      'hacking_data_memory': hacking_data('mem-mb'),
       'history': history,
       'history_full': history(@runs_all),
       'prev_diff': prev_diff,
@@ -957,7 +1018,9 @@ DESC
 
   def _lang_for(run)
     v = run.downcase.split('/').first
-    v.gsub("nim++", "nim").gsub("++", "pp").gsub("#", "sharp").gsub("go", "golang")
+    v = v.gsub("nim++", "nim").gsub("++", "pp").gsub("#", "sharp").gsub("js", "javascript")
+    v = "golang" if v == "go"
+    v
   end
 
   def _to_lang(run)

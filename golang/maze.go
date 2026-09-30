@@ -1,5 +1,9 @@
 package main
 
+import (
+	"container/heap"
+)
+
 type MazeCellKind int
 
 const (
@@ -79,13 +83,6 @@ func NewMaze(width, height int) *Maze {
 }
 
 func (m *Maze) UpdateNeighbors() {
-
-	for y := 0; y < m.Height; y++ {
-		for x := 0; x < m.Width; x++ {
-			m.Cells[y][x].Neighbors = m.Cells[y][x].Neighbors[:0]
-		}
-	}
-
 	for y := 0; y < m.Height; y++ {
 		for x := 0; x < m.Width; x++ {
 			cell := m.Cells[y][x]
@@ -99,7 +96,7 @@ func (m *Maze) UpdateNeighbors() {
 				for t := 0; t < 4; t++ {
 					i := NextInt(4)
 					j := NextInt(4)
-					if i != j && i < len(cell.Neighbors) && j < len(cell.Neighbors) {
+					if i != j {
 						cell.Neighbors[i], cell.Neighbors[j] = cell.Neighbors[j], cell.Neighbors[i]
 					}
 				}
@@ -149,31 +146,23 @@ func (m *Maze) Dig(startCell *MazeCell) {
 	}
 }
 
-func (m *Maze) EnsureOpenFinish(startCell *MazeCell) {
-	stack := make([]*MazeCell, 0, m.Width*m.Height)
-	stack = append(stack, startCell)
+func (m *Maze) EnsureOpenFinish(cell *MazeCell) {
+	cell.Kind = Space
 
-	for len(stack) > 0 {
-		cell := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-
-		cell.Kind = Space
-
-		walkable := 0
-		for _, n := range cell.Neighbors {
-			if n.Kind.IsWalkable() {
-				walkable++
-			}
+	walkable := 0
+	for _, n := range cell.Neighbors {
+		if n.Kind.IsWalkable() {
+			walkable++
 		}
+	}
 
-		if walkable > 1 {
-			continue
-		}
+	if walkable > 1 {
+		return
+	}
 
-		for _, n := range cell.Neighbors {
-			if n.Kind == Wall {
-				stack = append(stack, n)
-			}
+	for _, n := range cell.Neighbors {
+		if n.Kind == Wall {
+			m.EnsureOpenFinish(n)
 		}
 	}
 }
@@ -324,6 +313,43 @@ func (m *MazeBFS) Checksum() uint32 {
 	return m.resultVal + m.midCellChecksum(m.path)
 }
 
+type AStarItem struct {
+	priority int
+	vertex   int
+	index    int
+}
+
+type AStarPriorityQueue []*AStarItem
+
+func (pq AStarPriorityQueue) Len() int { return len(pq) }
+
+func (pq AStarPriorityQueue) Less(i, j int) bool {
+	return pq[i].priority < pq[j].priority
+}
+
+func (pq AStarPriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+	pq[i].index = i
+	pq[j].index = j
+}
+
+func (pq *AStarPriorityQueue) Push(x interface{}) {
+	n := len(*pq)
+	item := x.(*AStarItem)
+	item.index = n
+	*pq = append(*pq, item)
+}
+
+func (pq *AStarPriorityQueue) Pop() interface{} {
+	old := *pq
+	n := len(old)
+	item := old[n-1]
+	old[n-1] = nil
+	item.index = -1
+	*pq = old[0 : n-1]
+	return item
+}
+
 type MazeAStar struct {
 	BaseBenchmark
 	width     int
@@ -377,31 +403,17 @@ func (m *MazeAStar) astar(start, target *MazeCell) []*MazeCell {
 	startIdx := m.idx(start.Y, start.X)
 	targetIdx := m.idx(target.Y, target.X)
 
-	type Item struct {
-		priority int
-		vertex   int
-	}
-	openSet := make([]Item, 0)
+	openSet := &AStarPriorityQueue{}
+	heap.Init(openSet)
 
 	gScore[startIdx] = 0
 	fStart := m.heuristic(start, target)
-	openSet = append(openSet, Item{fStart, startIdx})
+	heap.Push(openSet, &AStarItem{priority: fStart, vertex: startIdx})
 	bestF[startIdx] = fStart
 
-	for len(openSet) > 0 {
-
-		minIdx := 0
-		for i := 1; i < len(openSet); i++ {
-			if openSet[i].priority < openSet[minIdx].priority {
-				minIdx = i
-			}
-		}
-		current := openSet[minIdx]
-
-		openSet[minIdx] = openSet[len(openSet)-1]
-		openSet = openSet[:len(openSet)-1]
-
-		currentIdx := current.vertex
+	for openSet.Len() > 0 {
+		item := heap.Pop(openSet).(*AStarItem)
+		currentIdx := item.vertex
 
 		if currentIdx == targetIdx {
 			result := make([]*MazeCell, 0)
@@ -439,7 +451,7 @@ func (m *MazeAStar) astar(start, target *MazeCell) []*MazeCell {
 
 				if fNew < bestF[neighborIdx] {
 					bestF[neighborIdx] = fNew
-					openSet = append(openSet, Item{fNew, neighborIdx})
+					heap.Push(openSet, &AStarItem{priority: fNew, vertex: neighborIdx})
 				}
 			}
 		}

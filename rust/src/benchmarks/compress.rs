@@ -35,20 +35,21 @@ fn bwt_transform(input: &[u8]) -> BWTResult {
         return BWTResult::new(Vec::new(), 0);
     }
 
-    let mut counts = [0; 256];
+    let mut sa = vec![0usize; n];
+
+    let mut counts = [0usize; 256];
     for &byte in input {
         counts[byte as usize] += 1;
     }
 
-    let mut positions = [0; 256];
-    let mut total = 0;
+    let mut positions = [0usize; 256];
+    let mut total = 0usize;
     for i in 0..256 {
         positions[i] = total;
         total += counts[i];
     }
 
-    let mut sa = vec![0; n];
-    let mut temp_counts = [0; 256];
+    let mut temp_counts = [0usize; 256];
     for i in 0..n {
         let byte = input[i] as usize;
         let pos = positions[byte] + temp_counts[byte];
@@ -57,12 +58,11 @@ fn bwt_transform(input: &[u8]) -> BWTResult {
     }
 
     if n > 1 {
-        let mut rank = vec![0; n];
-        let mut current_rank = 0;
+        let mut rank = vec![0usize; n];
+        let mut current_rank = 0usize;
         let mut prev_char = input[sa[0]];
 
-        for i in 0..n {
-            let idx = sa[i];
+        for &idx in sa.iter() {
             if input[idx] != prev_char {
                 current_rank += 1;
                 prev_char = input[idx];
@@ -70,31 +70,30 @@ fn bwt_transform(input: &[u8]) -> BWTResult {
             rank[idx] = current_rank;
         }
 
-        let mut k = 1;
+        let mut k = 1usize;
         while k < n {
+            let mut pairs: Vec<(usize, usize)> = Vec::with_capacity(n);
+            for i in 0..n {
+                pairs.push((rank[i], rank[(i + k) % n]));
+            }
+
             sa.sort_by(|&a, &b| {
-                let ra = rank[a];
-                let rb = rank[b];
-                if ra != rb {
-                    ra.cmp(&rb)
+                let pa = pairs[a];
+                let pb = pairs[b];
+                if pa.0 != pb.0 {
+                    pa.0.cmp(&pb.0)
                 } else {
-                    let rak = rank[(a + k) % n];
-                    let rbk = rank[(b + k) % n];
-                    rak.cmp(&rbk)
+                    pa.1.cmp(&pb.1)
                 }
             });
 
-            let mut new_rank = vec![0; n];
+            let mut new_rank = vec![0usize; n];
             new_rank[sa[0]] = 0;
             for i in 1..n {
                 let prev = sa[i - 1];
                 let curr = sa[i];
-                new_rank[curr] = new_rank[prev]
-                    + if rank[prev] != rank[curr] || rank[(prev + k) % n] != rank[(curr + k) % n] {
-                        1
-                    } else {
-                        0
-                    };
+                let same = pairs[prev] == pairs[curr];
+                new_rank[curr] = new_rank[prev] + if same { 0 } else { 1 };
             }
 
             rank = new_rank;
@@ -102,8 +101,8 @@ fn bwt_transform(input: &[u8]) -> BWTResult {
         }
     }
 
-    let mut transformed = vec![0; n];
-    let mut original_idx = 0;
+    let mut transformed = vec![0u8; n];
+    let mut original_idx: i32 = 0;
 
     for (i, &suffix) in sa.iter().enumerate() {
         if suffix == 0 {
@@ -795,11 +794,7 @@ fn arith_decode(encoded: &ArithEncodedResult) -> Vec<u8> {
         let range = high - low + 1;
         let scaled = ((value - low + 1) * total as u64 - 1) / range;
 
-        let mut symbol: u8 = 0;
-        while symbol < 255 && high_table[symbol as usize] as u64 <= scaled {
-            symbol += 1;
-        }
-
+        let symbol = high_table.partition_point(|&x| x as u64 <= scaled) as u8;
         result[j] = symbol as u8;
 
         high = low + (range * high_table[symbol as usize] as u64 / total as u64) - 1;
@@ -1011,7 +1006,7 @@ fn lzw_decode(encoded: &LZWResult) -> Vec<u8> {
         } else if new_code == next_code {
             old_str.clone() + &old_str[0..1]
         } else {
-            panic!("Decode error");
+            return Vec::new();
         };
 
         result.extend_from_slice(new_str.as_bytes());

@@ -1,0 +1,2 @@
+#!/bin/sh
+gos run . ../test.js "$@"
