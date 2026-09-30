@@ -47,7 +47,8 @@ _code = |text| (
 // dictionary back in the state the coding had it in.
 //
 // A number one past the dictionary names the run being built as it is read: the run before it
-// followed by its own first byte, which is the first byte of the run before it.
+// followed by its own first byte, which is the first byte of the run before it. A number further
+// past the dictionary cannot be read, and the whole reading is then empty.
 //
 // # Parameters
 // * `coded` - The coded text to read.
@@ -61,6 +62,7 @@ _read = |coded| (
         |(text, dict, previous, at)|
         if at == coded.@size { break $ (text, dict, previous, at) };
         let number = coded.@(at).i64 * 256 + coded.@(at + 1).i64;
+        if number > dict.@size { break $ (Array::empty(0), dict, previous, at) };
         let run = if number < dict.@size { dict.@(number) } else { previous.push_back(previous.@(0)) };
         continue $ (
             text.append(run), dict.push_back(previous.push_back(run.@(0))), run, at + 2
