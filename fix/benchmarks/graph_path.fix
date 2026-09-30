@@ -2,12 +2,13 @@
 module LangArena.Benchmarks.GraphPath;
 
 import LangArena.Bench::{make, Bench, MakeBench};
+import LangArena.Heap::{pop, push};
 import LangArena.Helper::{config_i64, next_int, Config, Rng};
 import Std::{
     loop, Array, I64, String, U32, 
     Array::{empty, fill, from_map, mod, pop_back, push_back, set, @, @size}, 
     Iterator::{fold, map, range, sum}, LessThan::min, LoopState::{break, continue}, 
-    Option::{as_some, is_some, none, some}, ToU32::u32, Tuple2::@0
+    Option::{as_some, is_some, none, some}, ToU32::u32
 };
 
 _bfs_name : String = "Graph::BFS";
@@ -131,49 +132,6 @@ _dfs = |start, target, graph| (
     if best == _unreached { -1 } else { best }
 );
 
-// Puts an item into a heap ordered by the first element of its pairs, held as the array of the
-// binary tree read breadth first.
-//
-// # Parameters
-// * `item` - The item to put in.
-// * `heap` - The heap to put it into.
-_heap_push : (I64, I64) -> Array (I64, I64) -> Array (I64, I64);
-_heap_push = |item, heap| (
-    let heap = heap.push_back(item);
-    let last = heap.@size - 1;
-    let (heap, hole) = loop((heap, last), |(heap, hole)|
-        if hole == 0 { break $ (heap, hole) };
-        let parent = (hole - 1) / 2;
-        let above = heap.@(parent);
-        if above.@0 <= item.@0 { break $ (heap, hole) };
-        continue $ (heap.set(hole, above), parent)
-    );
-    heap.set(hole, item)
-);
-
-// Takes the least item out of the heap, with the heap it leaves behind.
-//
-// # Parameters
-// * `heap` - The heap to take from.
-_heap_pop : Array (I64, I64) -> ((I64, I64), Array (I64, I64));
-_heap_pop = |heap| (
-    let least = heap.@(0);
-    let size = heap.@size - 1;
-    let last = heap.@(size);
-    let heap = heap.pop_back;
-    if size == 0 { (least, heap) };
-    let (heap, hole) = loop((heap, 0), |(heap, hole)|
-        let left = 2 * hole + 1;
-        if left >= size { break $ (heap, hole) };
-        let right = left + 1;
-        let child = if right < size && heap.@(right).@0 < heap.@(left).@0 { right } else { left };
-        let below = heap.@(child);
-        if last.@0 <= below.@0 { break $ (heap, hole) };
-        continue $ (heap.set(hole, below), child)
-    );
-    (least, heap.set(hole, last))
-);
-
 // How many edges the path A* finds between two vertices has, or -1 when none joins them.
 //
 // The distance left is estimated as the difference of the two vertex numbers, which a jump covers
@@ -190,29 +148,25 @@ _astar = |start, target, graph| (
     let adj = graph.@adj;
     let vertices = graph.@vertices;
     let g_score = fill(vertices, _unreached).set(start, 0);
-    let closed = fill(vertices, false);
-    let open_of = fill(vertices, false).set(start, true);
-    loop((g_score, closed, open_of, [(target - start, start)]), |(g_score, closed, open_of, open)|
+    let best_f = fill(vertices, _unreached).set(start, target - start);
+    loop((g_score, best_f, Heap::push((target - start, start), [])), |(g_score, best_f, open)|
         if open.@size == 0 { break $ -1 };
-        let ((_, vertex), open) = open._heap_pop;
-        let open_of = open_of.set(vertex, false);
+        let ((_, vertex), open) = Heap::pop(open);
         if vertex == target { break $ g_score.@(vertex) };
-        let closed = closed.set(vertex, true);
         // No neighbour the walk goes on to reach is the vertex itself, so the distance it reached
         // this vertex at stands for the whole of the round.
         let tentative = g_score.@(vertex) + 1;
         let neighbours = adj.@(vertex);
-        let (g_score, open_of, open) = loop((g_score, open_of, open, 0), |(g_score, open_of, open, k)|
-            if k == neighbours.@size { break $ (g_score, open_of, open) };
+        let (g_score, best_f, open) = loop((g_score, best_f, open, 0), |(g_score, best_f, open, k)|
+            if k == neighbours.@size { break $ (g_score, best_f, open) };
             let neighbour = neighbours.@(k);
-            if closed.@(neighbour) { continue $ (g_score, open_of, open, k + 1) };
-            if tentative >= g_score.@(neighbour) { continue $ (g_score, open_of, open, k + 1) };
+            if tentative >= g_score.@(neighbour) { continue $ (g_score, best_f, open, k + 1) };
             let g_score = g_score.set(neighbour, tentative);
-            if open_of.@(neighbour) { continue $ (g_score, open_of, open, k + 1) };
-            let open = open._heap_push((tentative + target - neighbour, neighbour));
-            continue $ (g_score, open_of.set(neighbour, true), open, k + 1)
+            let f = tentative + target - neighbour;
+            if f >= best_f.@(neighbour) { continue $ (g_score, best_f, open, k + 1) };
+            continue $ (g_score, best_f.set(neighbour, f), Heap::push((f, neighbour), open), k + 1)
         );
-        continue $ (g_score, closed, open_of, open)
+        continue $ (g_score, best_f, open)
     )
 );
 
