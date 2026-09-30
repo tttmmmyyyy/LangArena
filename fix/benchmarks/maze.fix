@@ -268,28 +268,28 @@ _astar = |maze| (
     let estimate = |cell| (cell / w - target / w).abs + (cell % w - target % w).abs;
     let came_from = fill(w * maze.@h, -1);
     let g_score = fill(w * maze.@h, _unreached).set(start, 0);
+    let best_f = fill(w * maze.@h, _unreached).set(start, estimate(start));
     let (came_from, found) = loop(
-        (came_from, g_score, Heap::push((estimate(start), start), Array::empty(64))),
-        |(came_from, g_score, open)|
+        (came_from, g_score, best_f, Heap::push((estimate(start), start), Array::empty(64))),
+        |(came_from, g_score, best_f, open)|
         if open.@size == 0 { break $ (came_from, false) };
         let ((_, cell), open) = Heap::pop(open);
         if cell == target { break $ (came_from, true) };
         let reached_at = g_score.@(cell) + 1;
-        let (came_from, g_score, open) = loop(
-            (came_from, g_score, open, 0), |(came_from, g_score, open, k)|
-            if k == 4 { break $ (came_from, g_score, open) };
+        let (came_from, g_score, best_f, open) = loop(
+            (came_from, g_score, best_f, open, 0), |(came_from, g_score, best_f, open, k)|
+            if k == 4 { break $ (came_from, g_score, best_f, open) };
             let neighbour = neighbours.@(cell * 4 + k);
             if !_is_walkable(kinds.@(neighbour)) || reached_at >= g_score.@(neighbour) {
-                continue $ (came_from, g_score, open, k + 1)
+                continue $ (came_from, g_score, best_f, open, k + 1)
             };
-            continue $ (
-                came_from.set(neighbour, cell),
-                g_score.set(neighbour, reached_at),
-                Heap::push((reached_at + estimate(neighbour), neighbour), open),
-                k + 1
-            )
+            let came_from = came_from.set(neighbour, cell);
+            let g_score = g_score.set(neighbour, reached_at);
+            let f = reached_at + estimate(neighbour);
+            if f >= best_f.@(neighbour) { continue $ (came_from, g_score, best_f, open, k + 1) };
+            continue $ (came_from, g_score, best_f.set(neighbour, f), Heap::push((f, neighbour), open), k + 1)
         );
-        continue $ (came_from, g_score, open)
+        continue $ (came_from, g_score, best_f, open)
     );
     if !found { Array::empty(0) };
     loop(([], target), |(walk, at)|
