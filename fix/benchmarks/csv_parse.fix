@@ -3,7 +3,7 @@
 module LangArena.Benchmarks.CsvParse;
 
 import LangArena.Bench::{make, Bench, MakeBench};
-import LangArena.Helper::{append_str, checksum_float, config_i64, next_float, string_of, Rng};
+import LangArena.Helper::{append_str, checksum_bytes, checksum_float, config_i64, next_float, string_of, Rng};
 import Std::{
     loop, Array, F64, I64, String, U32, U8, Array::{empty, get_sub, push_back, @, @size}, 
     F64::to_string_precision, FromString::from_string, Iterator::{fold, map, range, sum}, 
@@ -99,7 +99,8 @@ _parse_points = |text| (
     points
 );
 
-// The benchmark holding the text and the sum of the checksums of the averages so far.
+// The benchmark holding the text and the sum of the checksums of the averages so far. Its checksum
+// adds the checksum of the text to that sum.
 //
 // # Parameters
 // * `text` - The text to read.
@@ -119,7 +120,7 @@ _make_bench = |text, total| Bench::make(
         ).sum;
         _make_bench(text, total)
     ),
-    |_| total
+    |_| total + checksum_bytes(text)
 );
 
 // The benchmark, as the runner's registry holds it.
