@@ -1,6 +1,8 @@
 use super::super::helper;
+use super::super::Benchmark;
 use crate::config_i64;
 use std::cmp::Ordering;
+use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::collections::VecDeque;
 
@@ -128,7 +130,7 @@ impl GraphPathBFS {
     }
 }
 
-impl super::super::Benchmark for GraphPathBFS {
+impl Benchmark for GraphPathBFS {
     fn name(&self) -> String {
         "Graph::BFS".to_string()
     }
@@ -193,7 +195,7 @@ impl GraphPathDFS {
     }
 }
 
-impl super::super::Benchmark for GraphPathDFS {
+impl Benchmark for GraphPathDFS {
     fn name(&self) -> String {
         "Graph::DFS".to_string()
     }
@@ -214,13 +216,15 @@ impl super::super::Benchmark for GraphPathDFS {
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Node {
-    vertex: i32,
     f_score: i32,
+    vertex: i32,
 }
 
 impl Ord for Node {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.f_score.cmp(&self.f_score)
+        self.f_score
+            .cmp(&other.f_score)
+            .then_with(|| self.vertex.cmp(&other.vertex))
     }
 }
 
@@ -245,46 +249,38 @@ impl GraphPathAStar {
         }
 
         let vertices = self.base.graph.vertices as usize;
+
         let mut g_score = vec![i32::MAX; vertices];
-        let mut closed = vec![false; vertices];
+        let mut best_f = vec![i32::MAX; vertices];
 
         g_score[start as usize] = 0;
+        let f_start = self.heuristic(start, target);
+        best_f[start as usize] = f_start;
 
         let mut open_set = BinaryHeap::new();
-        let mut in_open_set = vec![false; vertices];
-
-        open_set.push(Node {
+        open_set.push(Reverse(Node {
+            f_score: f_start,
             vertex: start,
-            f_score: self.heuristic(start, target),
-        });
-        in_open_set[start as usize] = true;
+        }));
 
-        while let Some(current) = open_set.pop() {
-            in_open_set[current.vertex as usize] = false;
-
+        while let Some(Reverse(current)) = open_set.pop() {
             if current.vertex == target {
                 return g_score[current.vertex as usize] as i64;
             }
 
-            closed[current.vertex as usize] = true;
-
             for &neighbor in &self.base.graph.adj[current.vertex as usize] {
-                if closed[neighbor as usize] {
-                    continue;
-                }
-
                 let tentative_g = g_score[current.vertex as usize] + 1;
 
                 if tentative_g < g_score[neighbor as usize] {
                     g_score[neighbor as usize] = tentative_g;
-                    let f = tentative_g + self.heuristic(neighbor, target);
+                    let f_new = tentative_g + self.heuristic(neighbor, target);
 
-                    if !in_open_set[neighbor as usize] {
-                        open_set.push(Node {
+                    if f_new < best_f[neighbor as usize] {
+                        best_f[neighbor as usize] = f_new;
+                        open_set.push(Reverse(Node {
+                            f_score: f_new,
                             vertex: neighbor,
-                            f_score: f,
-                        });
-                        in_open_set[neighbor as usize] = true;
+                        }));
                     }
                 }
             }
@@ -300,7 +296,7 @@ impl GraphPathAStar {
     }
 }
 
-impl super::super::Benchmark for GraphPathAStar {
+impl Benchmark for GraphPathAStar {
     fn name(&self) -> String {
         "Graph::AStar".to_string()
     }

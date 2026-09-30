@@ -7,8 +7,8 @@ import LangArena.Benchmarks.Compress::{byte_frequencies, generate_text};
 import LangArena.Helper::config_i64;
 import Std::{
     loop, Array, I64, String, U32, U8, Add::add, 
-    Array::{empty, fill, mod, set, sort_stable_by, @, @size}, Iterator::{fold, map, range, sum}, 
-    LoopState::{break, continue}, ToI64::i64, ToU32::u32, Tuple2::@0
+    Array::{empty, fill, from_map, mod, set, sort_stable_by, @, @size}, Iterator::{fold, map, range, sum}, 
+    LoopState::{break, continue}, ToI64::i64, ToU32::u32, Tuple2::{@0, @1}
 };
 
 _encode_name : String = "Compress::BWTEncode";
@@ -31,7 +31,8 @@ _bucket_starts = |bytes| (
 // The rotations of the text, as their starting offsets in the order the rotations sort in.
 //
 // The order is found by doubling: the rotations are first ordered by their first byte, and each
-// round then orders them by twice as many bytes, using the order of the round before as the key.
+// round then orders them by twice as many bytes. A round pairs each rotation's rank with the rank of
+// the rotation starting `k` bytes later, and orders the rotations by that pair.
 //
 // # Parameters
 // * `text` - The text to sort the rotations of.
@@ -52,15 +53,15 @@ _sort_rotations = |text| (
     );
     let (order, _, _) = loop((order, rank, 1), |(order, rank, k)|
         if k >= n { break $ (order, rank, k) };
+        let pairs = from_map(n, |i| (rank.@(i), rank.@((i + k) % n)));
         let order = order.sort_stable_by(|(a, b)|
-            let (ra, rb) = (rank.@(a), rank.@(b));
-            if ra != rb { ra < rb };
-            rank.@((a + k) % n) < rank.@((b + k) % n)
+            let (pa, pb) = (pairs.@(a), pairs.@(b));
+            if pa.@0 != pb.@0 { pa.@0 < pb.@0 };
+            pa.@1 < pb.@1
         );
         let rank = range(1, n).fold(fill(n, 0), |i, new_rank|
             let (previous, current) = (order.@(i - 1), order.@(i));
-            let same = rank.@(previous) == rank.@(current)
-                && rank.@((previous + k) % n) == rank.@((current + k) % n);
+            let same = pairs.@(previous) == pairs.@(current);
             new_rank.set(current, new_rank.@(previous) + if same { 0 } else { 1 })
         );
         continue $ (order, rank, k * 2)

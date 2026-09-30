@@ -1,0 +1,11 @@
+pub trait Bench {
+    fn prepare(&mut self) {}
+
+    fn warmup(&mut self, iterations: i64) {
+        for i in 0..iterations { self.run(i) }
+    }
+
+    fn run(&mut self, iteration_id: i64)
+
+    fn checksum(&self) -> u32
+}

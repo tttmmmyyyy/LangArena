@@ -5,13 +5,15 @@ let package = Package(
   name: "Benchmarks",
   platforms: [.macOS(.v10_15)],
   dependencies: [
-    .package(url: "https://github.com/swiftcsv/SwiftCSV.git", from: "0.10.0")
+    .package(url: "https://github.com/swiftcsv/SwiftCSV.git", from: "0.10.0"),
+    .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0")
   ],
   targets: [
     .executableTarget(
       name: "Benchmarks",
       dependencies: [
-        .product(name: "SwiftCSV", package: "SwiftCSV")
+        .product(name: "SwiftCSV", package: "SwiftCSV"),
+        .product(name: "Collections", package: "swift-collections")
       ],
       swiftSettings: [
         // .unsafeFlags(["-cross-module-optimization"]),

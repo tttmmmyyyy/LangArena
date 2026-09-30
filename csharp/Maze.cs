@@ -45,7 +45,6 @@ public class MazeGenerator : Benchmark
         private readonly Cell[,] _cells;
         private readonly Cell _start;
         private readonly Cell _finish;
-        private readonly Random _random = new Random();
 
         public Maze(int width, int height)
         {
@@ -72,7 +71,6 @@ public class MazeGenerator : Benchmark
                 for (int x = 0; x < _width; x++)
                 {
                     var cell = _cells[y, x];
-                    cell.Neighbors.Clear();
 
                     if (x > 0 && y > 0 && x < _width - 1 && y < _height - 1)
                     {
@@ -112,7 +110,7 @@ public class MazeGenerator : Benchmark
 
         private void Dig(Cell startCell)
         {
-            var stack = new Stack<Cell>();
+            var stack = new Stack<Cell>(_width * _height);
             stack.Push(startCell);
 
             while (stack.Count > 0)
@@ -133,27 +131,19 @@ public class MazeGenerator : Benchmark
             }
         }
 
-        private void EnsureOpenFinish(Cell startCell)
+        private void EnsureOpenFinish(Cell cell)
         {
-            var stack = new Stack<Cell>();
-            stack.Push(startCell);
+            cell.Kind = CellKind.Space;
 
-            while (stack.Count > 0)
-            {
-                var cell = stack.Pop();
+            int walkable = 0;
+            foreach (var n in cell.Neighbors)
+                if (n.IsWalkable()) walkable++;
 
-                cell.Kind = CellKind.Space;
+            if (walkable > 1) return;
 
-                int walkable = 0;
-                foreach (var n in cell.Neighbors)
-                    if (n.IsWalkable()) walkable++;
-
-                if (walkable > 1) continue;
-
-                foreach (var n in cell.Neighbors)
-                    if (n.Kind == CellKind.Wall)
-                        stack.Push(n);
-            }
+            foreach (var n in cell.Neighbors)
+                if (n.Kind == CellKind.Wall)
+                    EnsureOpenFinish(n);
         }
 
         public void Generate()
@@ -262,6 +252,8 @@ public class MazeBFS : Benchmark
     public override void Prepare()
     {
         _maze.Generate();
+        _result = 0;
+        _path = new List<MazeGenerator.Cell>();
     }
 
     private List<MazeGenerator.Cell> Bfs(MazeGenerator.Cell start, MazeGenerator.Cell target)
@@ -345,6 +337,8 @@ public class MazeAStar : Benchmark
     public override void Prepare()
     {
         _maze.Generate();
+        _result = 0;
+        _path = new List<MazeGenerator.Cell>();
     }
 
     private int Heuristic(MazeGenerator.Cell a, MazeGenerator.Cell b) =>
@@ -383,8 +377,6 @@ public class MazeAStar : Benchmark
         while (openSet.Count > 0)
         {
             int currentIdx = openSet.Dequeue();
-
-            if (gScore[currentIdx] == int.MaxValue) continue;
 
             if (currentIdx == targetIdx)
             {

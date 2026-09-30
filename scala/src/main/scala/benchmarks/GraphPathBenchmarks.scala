@@ -90,10 +90,10 @@ class GraphPathDFS extends GraphPathBenchmark:
     if start == target then return 0
 
     val visited = new Array[Boolean](graph.vertices)
-    val stack = new java.util.ArrayDeque[Array[Int]]()
+    val stack = new java.util.ArrayDeque[(Int, Int)]()
     var bestPath = Int.MaxValue
 
-    stack.push(Array(start, 0))
+    stack.push((start, 0))
 
     while !stack.isEmpty do
       val current = stack.pop()
@@ -108,55 +108,54 @@ class GraphPathDFS extends GraphPathBenchmark:
           val neighbor = neighbors(j)
           if neighbor == target then
             if dist + 1 < bestPath then bestPath = dist + 1
-          else if !visited(neighbor) then stack.push(Array(neighbor, dist + 1))
+          else if !visited(neighbor) then stack.push((neighbor, dist + 1))
           j += 1
 
     if bestPath == Int.MaxValue then -1 else bestPath
 
-class GraphPathAStar extends GraphPathBenchmark:
-  private case class Node(vertex: Int, priority: Int) extends Ordered[Node]:
-    override def compare(that: Node): Int = this.priority - that.priority
+class GraphPriorityQueueItem(val priority: Int, val vertex: Int) extends Ordered[GraphPriorityQueueItem]:
+  override def compare(that: GraphPriorityQueueItem): Int =
+    if this.priority != that.priority then this.priority - that.priority
+    else this.vertex - that.vertex
 
+class GraphPathAStar extends GraphPathBenchmark:
   private def heuristic(v: Int, target: Int): Int = target - v
 
   private def aStarShortestPath(start: Int, target: Int): Int =
     if start == target then return 0
 
-    val gScore = Array.fill(graph.vertices)(Int.MaxValue)
-    val fScore = Array.fill(graph.vertices)(Int.MaxValue)
-    val closed = new Array[Boolean](graph.vertices)
+    val n = graph.vertices
+    val gScore = Array.fill(n)(Int.MaxValue)
+    val bestF = Array.fill(n)(Int.MaxValue)
 
     gScore(start) = 0
-    fScore(start) = heuristic(start, target)
+    val fStart = heuristic(start, target)
+    bestF(start) = fStart
 
-    val openSet = mutable.PriorityQueue[Node]()(Ordering[Node].reverse)
-    val inOpenSet = new Array[Boolean](graph.vertices)
+    val openSet = mutable.PriorityQueue[GraphPriorityQueueItem]()(
+      Ordering[GraphPriorityQueueItem].reverse
+    )
 
-    openSet.enqueue(Node(start, fScore(start)))
-    inOpenSet(start) = true
+    openSet.enqueue(GraphPriorityQueueItem(fStart, start))
 
     while openSet.nonEmpty do
       val current = openSet.dequeue()
-      inOpenSet(current.vertex) = false
 
       if current.vertex == target then return gScore(current.vertex)
-
-      closed(current.vertex) = true
 
       val neighbors = graph.adj(current.vertex)
       var i = 0
       while i < neighbors.size do
         val neighbor = neighbors(i)
-        if !closed(neighbor) then
-          val tentativeG = gScore(current.vertex) + 1
+        val tentativeG = gScore(current.vertex) + 1
 
-          if tentativeG < gScore(neighbor) then
-            gScore(neighbor) = tentativeG
-            fScore(neighbor) = tentativeG + heuristic(neighbor, target)
+        if tentativeG < gScore(neighbor) then
+          gScore(neighbor) = tentativeG
+          val fNew = tentativeG + heuristic(neighbor, target)
 
-            if !inOpenSet(neighbor) then
-              openSet.enqueue(Node(neighbor, fScore(neighbor)))
-              inOpenSet(neighbor) = true
+          if fNew < bestF(neighbor) then
+            bestF(neighbor) = fNew
+            openSet.enqueue(GraphPriorityQueueItem(fNew, neighbor))
         i += 1
 
     -1

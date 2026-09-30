@@ -3,6 +3,7 @@ module mazebench
 import benchmark
 import helper
 import math
+import datatypes
 
 enum CellKind {
 	wall   = 0
@@ -83,7 +84,6 @@ fn (mut m Maze) update_neighbors() {
 	for y in 0 .. m.height {
 		for x in 0 .. m.width {
 			mut cell := m.cells[y][x]
-			cell.neighbors = []&Cell{}
 
 			if x > 0 && y > 0 && x < m.width - 1 && y < m.height - 1 {
 				cell.neighbors << m.cells[y - 1][x]
@@ -145,37 +145,23 @@ fn (mut m Maze) dig(start_cell &Cell) {
 	}
 }
 
-fn (mut m Maze) ensure_open_finish(start_cell &Cell) {
-	mut stack := []&Cell{}
-	stack << start_cell
-	mut stack_ptr := 1
+fn (mut m Maze) ensure_open_finish(mut cell Cell) {
+	cell.kind = .space
 
-	for stack_ptr > 0 {
-		stack_ptr--
-		mut cell := stack[stack_ptr]
-
-		cell.kind = .space
-
-		mut walkable := 0
-		for i in 0 .. cell.neighbors.len {
-			if is_walkable(cell.neighbors[i].kind) {
-				walkable++
-			}
+	mut walkable := 0
+	for neighbor in cell.neighbors {
+		if is_walkable(neighbor.kind) {
+			walkable++
 		}
+	}
 
-		if walkable > 1 {
-			continue
-		}
+	if walkable > 1 {
+		return
+	}
 
-		for i in 0 .. cell.neighbors.len {
-			if cell.neighbors[i].kind == .wall {
-				if stack.len <= stack_ptr {
-					stack << cell.neighbors[i]
-				} else {
-					stack[stack_ptr] = cell.neighbors[i]
-				}
-				stack_ptr++
-			}
+	for mut neighbor in cell.neighbors {
+		if neighbor.kind == .wall {
+			m.ensure_open_finish(mut neighbor)
 		}
 	}
 }
@@ -187,9 +173,9 @@ fn (mut m Maze) generate() {
 		}
 	}
 
-	for n in m.finish.neighbors {
+	for mut n in m.finish.neighbors {
 		if n.kind == .wall {
-			m.ensure_open_finish(n)
+			m.ensure_open_finish(mut n)
 		}
 	}
 }
@@ -357,77 +343,16 @@ pub fn (b MazeBFS) checksum() u32 {
 	return b.result_val + b.mid_cell_checksum(b.path)
 }
 
-struct PriorityQueue2 {
-mut:
-	vertices   []int
-	priorities []int
-	size       int
+struct AStarEntry {
+	priority int
+	vertex   int
 }
 
-fn priority_queue_new(capacity int) PriorityQueue2 {
-	return PriorityQueue2{
-		vertices:   []int{len: capacity}
-		priorities: []int{len: capacity}
-		size:       0
+fn (a AStarEntry) < (b AStarEntry) bool {
+	if a.priority != b.priority {
+		return a.priority < b.priority
 	}
-}
-
-fn (mut pq PriorityQueue2) push(vertex int, priority int) {
-	if pq.size >= pq.vertices.len {
-		pq.vertices << 0
-		pq.priorities << 0
-	}
-
-	mut i := pq.size
-	pq.size++
-	pq.vertices[i] = vertex
-	pq.priorities[i] = priority
-
-	for i > 0 {
-		parent := (i - 1) / 2
-		if pq.priorities[parent] <= pq.priorities[i] {
-			break
-		}
-		pq.vertices[i], pq.vertices[parent] = pq.vertices[parent], pq.vertices[i]
-		pq.priorities[i], pq.priorities[parent] = pq.priorities[parent], pq.priorities[i]
-		i = parent
-	}
-}
-
-fn (mut pq PriorityQueue2) pop() ?int {
-	if pq.size == 0 {
-		return none
-	}
-
-	result := pq.vertices[0]
-	pq.size--
-
-	if pq.size > 0 {
-		pq.vertices[0] = pq.vertices[pq.size]
-		pq.priorities[0] = pq.priorities[pq.size]
-
-		mut i := 0
-		for {
-			left := 2 * i + 1
-			right := 2 * i + 2
-			mut smallest := i
-
-			if left < pq.size && pq.priorities[left] < pq.priorities[smallest] {
-				smallest = left
-			}
-			if right < pq.size && pq.priorities[right] < pq.priorities[smallest] {
-				smallest = right
-			}
-			if smallest == i {
-				break
-			}
-			pq.vertices[i], pq.vertices[smallest] = pq.vertices[smallest], pq.vertices[i]
-			pq.priorities[i], pq.priorities[smallest] = pq.priorities[smallest], pq.priorities[i]
-			i = smallest
-		}
-	}
-
-	return result
+	return a.vertex < b.vertex
 }
 
 @[heap]
@@ -488,17 +413,16 @@ fn (mut b MazeAStar) astar(start &Cell, target &Cell) []&Cell {
 	start_idx := b.idx(start.y, start.x)
 	target_idx := b.idx(target.y, target.x)
 
-	mut open_set := priority_queue_new(size)
-	mut in_open := []u8{len: size, init: 0}
+	mut open_set := datatypes.MinHeap[AStarEntry]{}
 
 	g_score[start_idx] = 0
 	f_start := b.heuristic(start, target)
-	open_set.push(start_idx, f_start)
+	open_set.insert(AStarEntry{f_start, start_idx})
 	best_f[start_idx] = f_start
-	in_open[start_idx] = 1
 
-	for open_set.size > 0 {
-		current_idx := open_set.pop() or { break }
+	for open_set.len() > 0 {
+		entry := open_set.pop() or { break }
+		current_idx := entry.vertex
 
 		if current_idx == target_idx {
 			mut result := []&Cell{}
@@ -533,10 +457,7 @@ fn (mut b MazeAStar) astar(start &Cell, target &Cell) []&Cell {
 
 				if f_new < best_f[neighbor_idx] {
 					best_f[neighbor_idx] = f_new
-					if in_open[neighbor_idx] == 0 {
-						open_set.push(neighbor_idx, f_new)
-						in_open[neighbor_idx] = 1
-					}
+					open_set.insert(AStarEntry{f_new, neighbor_idx})
 				}
 			}
 		}

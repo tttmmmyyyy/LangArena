@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.3.0"
+    kotlin("jvm") version "2.4.10"
 }
 
 repositories {
@@ -7,15 +7,14 @@ repositories {
 }
 
 dependencies {
-    implementation("com.alibaba.fastjson2:fastjson2-kotlin:2.0.62")
+    implementation("com.alibaba.fastjson2:fastjson2-kotlin:2.0.64")
 
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("com.opencsv:opencsv:5.12.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("org.json:json:20260522")
+    implementation("org.json:json:20260814")
 }
 
 java {
@@ -58,83 +57,5 @@ tasks.register<JavaExec>("runDebug") {
 
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
-    }
-}
-
-tasks.register<JavaExec>("runRelease") {
-    group = "application"
-    description = "Run benchmarks with MAXIMUM optimizations"
-
-    mainClass.set("MainKt")
-    classpath = sourceSets.main.get().runtimeClasspath
-
-    jvmArgs =
-        listOf(
-            "-server",
-            "-XX:+UseG1GC",
-            "-XX:MaxGCPauseMillis=10",
-            "-XX:G1HeapRegionSize=8M",
-            "-XX:+UnlockExperimentalVMOptions",
-            "-XX:G1NewSizePercent=30",
-            "-XX:G1MaxNewSizePercent=50",
-            "-XX:G1HeapWastePercent=5",
-            "-XX:G1MixedGCCountTarget=8",
-            "-XX:InitiatingHeapOccupancyPercent=45",
-            "-Xms4g",
-            "-Xmx4g",
-            "-Xss2m",
-            "-XX:+AlwaysPreTouch",
-            "-XX:+OptimizeStringConcat",
-            "-XX:+UseCompressedOops",
-            "-XX:+UseCompressedClassPointers",
-            "-Dsun.zip.disableMemoryMapping=true",
-            "-Djava.security.egd=file:/dev/./urandom",
-            "-XX:+DisableExplicitGC",
-            "-XX:AutoBoxCacheMax=20000",
-            "-XX:+PerfDisableSharedMem",
-            "-XX:+UseLargePages",
-            "-XX:+UseTransparentHugePages",
-            "-XX:+UseCountedLoopSafepoints",
-            "-XX:LoopUnrollLimit=100",
-            "-XX:MaxInlineSize=325",
-            "-XX:FreqInlineSize=325",
-            "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED",
-            "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-            "-Dsun.misc.Unsafe.allowMemoryAccess=true",
-        )
-
-    if (project.hasProperty("args")) {
-        args((project.property("args") as String).split(" "))
-    }
-}
-
-tasks.register<JavaExec>("runBenchmark") {
-    group = "application"
-
-    mainClass.set("MainKt")
-    classpath = sourceSets.main.get().runtimeClasspath
-
-    jvmArgs =
-        listOf(
-            "-server",
-            "-XX:+UseG1GC",
-            "-XX:MaxGCPauseMillis=1",
-            "-Xms4g",
-            "-Xmx4g",
-            "-XX:+AlwaysPreTouch",
-            "-XX:+DisableExplicitGC",
-            "-Djava.security.egd=file:/dev/./urandom",
-            "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED",
-            "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-            "-Dsun.misc.Unsafe.allowMemoryAccess=true",
-        )
-
-    environment.remove("DEBUG")
-
-    if (project.hasProperty("args")) {
-        args((project.property("args") as String).split(" "))
-    }
-
-    doFirst {
     }
 }

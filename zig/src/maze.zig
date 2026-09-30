@@ -32,33 +32,21 @@ pub const MazeGenerator = struct {
 
     pub const Cell = struct {
         kind: CellKind,
-        neighbors: std.ArrayListUnmanaged(*Cell),
+        neighbors: [4]*Cell,
+        neighbor_count: u8,
         x: i32,
         y: i32,
-
-        pub fn init(allocator: std.mem.Allocator, x: i32, y: i32) !*Cell {
-            const self = try allocator.create(Cell);
-            self.* = Cell{
-                .kind = .wall,
-                .neighbors = .empty,
-                .x = x,
-                .y = y,
-            };
-            return self;
-        }
-
-        pub fn deinit(self: *Cell, allocator: std.mem.Allocator) void {
-            self.neighbors.deinit(allocator);
-            allocator.destroy(self);
-        }
-
-        pub fn addNeighbor(self: *Cell, allocator: std.mem.Allocator, cell: *Cell) !void {
-            try self.neighbors.append(allocator, cell);
-        }
 
         pub fn reset(self: *Cell) void {
             if (self.kind == .space) {
                 self.kind = .wall;
+            }
+        }
+
+        pub fn addNeighbor(self: *Cell, cell: *Cell) void {
+            if (self.neighbor_count < 4) {
+                self.neighbors[self.neighbor_count] = cell;
+                self.neighbor_count += 1;
             }
         }
     };
@@ -66,7 +54,7 @@ pub const MazeGenerator = struct {
     pub const Maze = struct {
         width: i32,
         height: i32,
-        cells: []*Cell,
+        cells: [][]Cell,
         start: *Cell,
         finish: *Cell,
         allocator: std.mem.Allocator,
@@ -76,48 +64,55 @@ pub const MazeGenerator = struct {
             const w = @max(width, 5);
             const h = @max(height, 5);
 
-            const cells = try allocator.alloc(*Cell, @intCast(w * h));
-            errdefer allocator.free(cells);
+            const rows = try allocator.alloc([]Cell, @intCast(h));
+            errdefer allocator.free(rows);
 
-            var y: i32 = 0;
-            while (y < h) : (y += 1) {
-                var x: i32 = 0;
-                while (x < w) : (x += 1) {
-                    const idx = @as(usize, @intCast(y * w + x));
-                    cells[idx] = try Cell.init(allocator, x, y);
-                }
+            var allocated: usize = 0;
+            errdefer {
+                var k: usize = 0;
+                while (k < allocated) : (k += 1) allocator.free(rows[k]);
             }
 
-            const start = cells[@as(usize, @intCast(1 * w + 1))];
-            const finish = cells[@as(usize, @intCast((h - 2) * w + (w - 2)))];
-            start.kind = .start;
-            finish.kind = .finish;
+            var y: usize = 0;
+            while (y < @as(usize, @intCast(h))) : (y += 1) {
+                rows[y] = try allocator.alloc(Cell, @intCast(w));
+                allocated += 1;
+
+                var x: usize = 0;
+                while (x < @as(usize, @intCast(w))) : (x += 1) {
+                    rows[y][x] = Cell{
+                        .kind = .wall,
+                        .neighbors = undefined,
+                        .neighbor_count = 0,
+                        .x = @intCast(x),
+                        .y = @intCast(y),
+                    };
+                }
+            }
 
             const self = try allocator.create(Maze);
             self.* = Maze{
                 .width = w,
                 .height = h,
-                .cells = cells,
-                .start = start,
-                .finish = finish,
+                .cells = rows,
+                .start = &rows[1][1],
+                .finish = &rows[@intCast(h - 2)][@intCast(w - 2)],
                 .allocator = allocator,
                 .helper = helper,
             };
+            self.start.kind = .start;
+            self.finish.kind = .finish;
 
             try self.updateNeighbors();
             return self;
         }
 
         pub fn deinit(self: *Maze) void {
-            for (self.cells) |cell| {
-                cell.deinit(self.allocator);
+            for (self.cells) |row| {
+                self.allocator.free(row);
             }
             self.allocator.free(self.cells);
             self.allocator.destroy(self);
-        }
-
-        fn getIdx(self: *const Maze, y: i32, x: i32) usize {
-            return @intCast(y * self.width + x);
         }
 
         pub fn updateNeighbors(self: *Maze) !void {
@@ -125,23 +120,23 @@ pub const MazeGenerator = struct {
             while (y < self.height) : (y += 1) {
                 var x: i32 = 0;
                 while (x < self.width) : (x += 1) {
-                    const cell = self.cells[self.getIdx(y, x)];
-                    cell.neighbors.clearRetainingCapacity();
+                    const cell = &self.cells[@intCast(y)][@intCast(x)];
+                    cell.neighbor_count = 0;
 
                     if (x > 0 and y > 0 and x < self.width - 1 and y < self.height - 1) {
-                        try cell.addNeighbor(self.allocator, self.cells[self.getIdx(y - 1, x)]);
-                        try cell.addNeighbor(self.allocator, self.cells[self.getIdx(y + 1, x)]);
-                        try cell.addNeighbor(self.allocator, self.cells[self.getIdx(y, x + 1)]);
-                        try cell.addNeighbor(self.allocator, self.cells[self.getIdx(y, x - 1)]);
+                        cell.addNeighbor(&self.cells[@intCast(y - 1)][@intCast(x)]);
+                        cell.addNeighbor(&self.cells[@intCast(y + 1)][@intCast(x)]);
+                        cell.addNeighbor(&self.cells[@intCast(y)][@intCast(x + 1)]);
+                        cell.addNeighbor(&self.cells[@intCast(y)][@intCast(x - 1)]);
 
                         var t: usize = 0;
                         while (t < 4) : (t += 1) {
-                            const i = self.helper.nextInt(4);
-                            const j = self.helper.nextInt(4);
+                            const i: usize = @intCast(self.helper.nextInt(4));
+                            const j: usize = @intCast(self.helper.nextInt(4));
                             if (i != j) {
-                                const temp = cell.neighbors.items[@intCast(i)];
-                                cell.neighbors.items[@intCast(i)] = cell.neighbors.items[@intCast(j)];
-                                cell.neighbors.items[@intCast(j)] = temp;
+                                const temp = cell.neighbors[i];
+                                cell.neighbors[i] = cell.neighbors[j];
+                                cell.neighbors[j] = temp;
                             }
                         }
                     } else {
@@ -152,108 +147,97 @@ pub const MazeGenerator = struct {
         }
 
         pub fn reset(self: *Maze) void {
-            for (self.cells) |cell| {
-                cell.reset();
+            for (self.cells) |row| {
+                for (row) |*cell| {
+                    cell.reset();
+                }
             }
             self.start.kind = .start;
             self.finish.kind = .finish;
         }
+
         pub fn dig(self: *Maze, start_cell: *Cell) !void {
-            var stack = try std.ArrayListUnmanaged(*Cell).initCapacity(self.allocator, @intCast(self.width * self.height));
+            const max_size: usize = @intCast(self.width * self.height);
+            var stack = try std.ArrayListUnmanaged(*Cell).initCapacity(self.allocator, max_size);
             defer stack.deinit(self.allocator);
 
             stack.appendAssumeCapacity(start_cell);
 
             while (stack.items.len > 0) {
-                const cell = stack.pop();
+                const cell = stack.pop().?;
 
-                if (cell) |c| {
-                    var walkable: u32 = 0;
+                var walkable: u32 = 0;
+                var i: u8 = 0;
+                while (i < cell.neighbor_count) : (i += 1) {
+                    if (cell.neighbors[i].kind.isWalkable()) walkable += 1;
+                }
 
-                    const neighbors = c.neighbors.items;
-                    for (neighbors) |n| {
-                        if (n.kind.isWalkable()) {
-                            walkable += 1;
-                        }
-                    }
+                if (walkable != 1) continue;
 
-                    if (walkable != 1) {
-                        continue;
-                    }
+                cell.kind = .space;
 
-                    c.kind = .space;
-                    for (neighbors) |n| {
-                        if (n.kind == .wall) {
-                            try stack.append(self.allocator, n);
-                        }
+                i = 0;
+                while (i < cell.neighbor_count) : (i += 1) {
+                    const n = cell.neighbors[i];
+                    if (n.kind == .wall) {
+                        try stack.append(self.allocator, n);
                     }
                 }
             }
         }
-        pub fn ensureOpenFinish(self: *Maze, start_cell: *Cell) !void {
-            var stack = try std.ArrayListUnmanaged(*Cell).initCapacity(self.allocator, @intCast(self.width * self.height));
-            defer stack.deinit(self.allocator);
 
-            stack.appendAssumeCapacity(start_cell);
-            var stack_ptr: usize = 1;
+        pub fn ensureOpenFinish(self: *Maze, cell: *Cell) void {
+            cell.kind = .space;
 
-            while (stack_ptr > 0) {
-                stack_ptr -= 1;
-                const cell = stack.items[stack_ptr];
+            var walkable: u32 = 0;
+            var i: u8 = 0;
+            while (i < cell.neighbor_count) : (i += 1) {
+                if (cell.neighbors[i].kind.isWalkable()) walkable += 1;
+            }
 
-                cell.kind = .space;
+            if (walkable > 1) return;
 
-                var walkable: u32 = 0;
-                const neighbors = cell.neighbors.items;
-                for (neighbors) |n| {
-                    if (n.kind.isWalkable()) {
-                        walkable += 1;
-                    }
-                }
-
-                if (walkable > 1) {
-                    continue;
-                }
-
-                for (neighbors) |n| {
-                    if (n.kind == .wall) {
-                        if (stack_ptr >= stack.items.len) {
-                            try stack.append(self.allocator, n);
-                        } else {
-                            stack.items[stack_ptr] = n;
-                        }
-                        stack_ptr += 1;
-                    }
+            i = 0;
+            while (i < cell.neighbor_count) : (i += 1) {
+                const n = cell.neighbors[i];
+                if (n.kind == .wall) {
+                    self.ensureOpenFinish(n);
                 }
             }
         }
 
         pub fn generate(self: *Maze) !void {
-            for (self.start.neighbors.items) |n| {
+            var i: u8 = 0;
+            while (i < self.start.neighbor_count) : (i += 1) {
+                const n = self.start.neighbors[i];
                 if (n.kind == .wall) {
                     try self.dig(n);
                 }
             }
 
-            for (self.finish.neighbors.items) |n| {
+            i = 0;
+            while (i < self.finish.neighbor_count) : (i += 1) {
+                const n = self.finish.neighbors[i];
                 if (n.kind == .wall) {
-                    try self.ensureOpenFinish(n);
+                    self.ensureOpenFinish(n);
                 }
             }
         }
 
         pub fn middleCell(self: *const Maze) *Cell {
-            return self.cells[self.getIdx(@divTrunc(self.height, 2), @divTrunc(self.width, 2))];
+            return &self.cells[@intCast(@divTrunc(self.height, 2))][@intCast(@divTrunc(self.width, 2))];
         }
 
         pub fn checksum(self: *const Maze) u32 {
             var hasher: u32 = 2166136261;
             const prime: u32 = 16777619;
 
-            for (self.cells) |cell| {
-                if (cell.kind == .space) {
-                    const val = @as(u32, @intCast(cell.x * cell.y));
-                    hasher = (hasher ^ val) *% prime;
+            for (self.cells) |row| {
+                for (row) |cell| {
+                    if (cell.kind == .space) {
+                        const val: u32 = @intCast(cell.x * cell.y);
+                        hasher = (hasher ^ val) *% prime;
+                    }
                 }
             }
             return hasher;
@@ -270,7 +254,7 @@ pub const MazeGenerator = struct {
             .width = @intCast(w),
             .height = @intCast(h),
             .result_val = 0,
-            .maze = null,
+            .maze = try Maze.init(allocator, helper, @intCast(w), @intCast(h)),
         };
         return self;
     }
@@ -288,7 +272,6 @@ pub const MazeGenerator = struct {
 
     fn prepareImpl(ptr: *anyopaque) void {
         const self: *MazeGenerator = @ptrCast(@alignCast(ptr));
-        self.maze = Maze.init(self.allocator, self.helper, self.width, self.height) catch return;
         self.result_val = 0;
     }
 
@@ -346,7 +329,7 @@ pub const MazeBFS = struct {
             .width = @intCast(w),
             .height = @intCast(h),
             .result_val = 0,
-            .maze = null,
+            .maze = try MazeGenerator.Maze.init(allocator, helper, @intCast(w), @intCast(h)),
             .path = .empty,
         };
         return self;
@@ -371,11 +354,12 @@ pub const MazeBFS = struct {
             return result;
         }
 
+        const size: usize = @intCast(self.width * self.height);
+
         var queue = std.ArrayListUnmanaged(i32).empty;
         defer queue.deinit(self.allocator);
-        var head: usize = 0;
 
-        const visited = try self.allocator.alloc(bool, @intCast(self.width * self.height));
+        const visited = try self.allocator.alloc(bool, size);
         defer self.allocator.free(visited);
         @memset(visited, false);
 
@@ -386,12 +370,16 @@ pub const MazeBFS = struct {
         try path_nodes.append(self.allocator, PathNode{ .cell = start, .parent = -1 });
         try queue.append(self.allocator, 0);
 
+        var head: usize = 0;
         while (head < queue.items.len) {
             const path_id = queue.items[head];
             head += 1;
             const node = path_nodes.items[@intCast(path_id)];
 
-            for (node.cell.neighbors.items) |neighbor| {
+            var i: u8 = 0;
+            while (i < node.cell.neighbor_count) : (i += 1) {
+                const neighbor = node.cell.neighbors[i];
+
                 if (neighbor == target) {
                     var result = std.ArrayListUnmanaged(*MazeGenerator.Cell).empty;
                     errdefer result.deinit(self.allocator);
@@ -406,7 +394,7 @@ pub const MazeBFS = struct {
                 }
 
                 if (neighbor.kind.isWalkable()) {
-                    const n_idx = @as(usize, @intCast(neighbor.y * self.width + neighbor.x));
+                    const n_idx: usize = @intCast(neighbor.y * self.width + neighbor.x);
                     if (!visited[n_idx]) {
                         visited[n_idx] = true;
                         try path_nodes.append(self.allocator, PathNode{ .cell = neighbor, .parent = path_id });
@@ -436,7 +424,6 @@ pub const MazeBFS = struct {
 
     fn prepareImpl(ptr: *anyopaque) void {
         const self: *MazeBFS = @ptrCast(@alignCast(ptr));
-        self.maze = MazeGenerator.Maze.init(self.allocator, self.helper, self.width, self.height) catch return;
         self.maze.?.generate() catch return;
         self.result_val = 0;
         self.path = .empty;
@@ -462,79 +449,16 @@ pub const MazeAStar = struct {
     maze: ?*MazeGenerator.Maze,
     path: std.ArrayListUnmanaged(*MazeGenerator.Cell),
 
-    const PriorityQueue = struct {
-        vertices: []i32,
-        priorities: []i32,
-        size: usize,
-        allocator: std.mem.Allocator,
-
-        fn init(allocator: std.mem.Allocator, capacity: usize) !PriorityQueue {
-            return PriorityQueue{
-                .vertices = try allocator.alloc(i32, capacity),
-                .priorities = try allocator.alloc(i32, capacity),
-                .size = 0,
-                .allocator = allocator,
-            };
-        }
-
-        fn deinit(self: *PriorityQueue) void {
-            self.allocator.free(self.vertices);
-            self.allocator.free(self.priorities);
-        }
-
-        fn push(self: *PriorityQueue, vertex: i32, priority: i32) !void {
-            if (self.size >= self.vertices.len) {
-                self.vertices = try self.allocator.realloc(self.vertices, self.vertices.len * 2);
-                self.priorities = try self.allocator.realloc(self.priorities, self.priorities.len * 2);
-            }
-
-            var i = self.size;
-            self.size += 1;
-            self.vertices[i] = vertex;
-            self.priorities[i] = priority;
-
-            while (i > 0) {
-                const parent = (i - 1) / 2;
-                if (self.priorities[parent] <= self.priorities[i]) break;
-                std.mem.swap(i32, &self.vertices[i], &self.vertices[parent]);
-                std.mem.swap(i32, &self.priorities[i], &self.priorities[parent]);
-                i = parent;
-            }
-        }
-
-        fn pop(self: *PriorityQueue) ?i32 {
-            if (self.size == 0) return null;
-
-            const result = self.vertices[0];
-            self.size -= 1;
-
-            if (self.size > 0) {
-                self.vertices[0] = self.vertices[self.size];
-                self.priorities[0] = self.priorities[self.size];
-
-                var i: usize = 0;
-                while (true) {
-                    const left = 2 * i + 1;
-                    const right = 2 * i + 2;
-                    var smallest = i;
-
-                    if (left < self.size and self.priorities[left] < self.priorities[smallest]) {
-                        smallest = left;
-                    }
-                    if (right < self.size and self.priorities[right] < self.priorities[smallest]) {
-                        smallest = right;
-                    }
-                    if (smallest == i) break;
-
-                    std.mem.swap(i32, &self.vertices[i], &self.vertices[smallest]);
-                    std.mem.swap(i32, &self.priorities[i], &self.priorities[smallest]);
-                    i = smallest;
-                }
-            }
-
-            return result;
-        }
+    const AStarEntry = struct {
+        priority: i32,
+        vertex: i32,
     };
+
+    fn compareEntry(_: void, a: AStarEntry, b: AStarEntry) std.math.Order {
+        return std.math.order(a.priority, b.priority);
+    }
+
+    const AStarQueue = std.PriorityQueue(AStarEntry, void, compareEntry);
 
     const vtable = Benchmark.VTable{
         .run = runImpl,
@@ -553,7 +477,7 @@ pub const MazeAStar = struct {
             .width = @intCast(w),
             .height = @intCast(h),
             .result_val = 0,
-            .maze = null,
+            .maze = try MazeGenerator.Maze.init(allocator, helper, @intCast(w), @intCast(h)),
             .path = .empty,
         };
         return self;
@@ -577,6 +501,22 @@ pub const MazeAStar = struct {
         return dx + dy;
     }
 
+    fn reconstructPath(self: *MazeAStar, came_from: []const i32, current_idx_in: i32) !std.ArrayListUnmanaged(*MazeGenerator.Cell) {
+        var path = std.ArrayListUnmanaged(*MazeGenerator.Cell).empty;
+        errdefer path.deinit(self.allocator);
+
+        var current_idx = current_idx_in;
+        while (current_idx != -1) {
+            const y: i32 = @divTrunc(current_idx, self.width);
+            const x: i32 = @rem(current_idx, self.width);
+            try path.append(self.allocator, &self.maze.?.cells[@intCast(y)][@intCast(x)]);
+            current_idx = came_from[@intCast(current_idx)];
+        }
+
+        std.mem.reverse(*MazeGenerator.Cell, path.items);
+        return path;
+    }
+
     fn astar(self: *MazeAStar, start: *MazeGenerator.Cell, target: *MazeGenerator.Cell) !std.ArrayListUnmanaged(*MazeGenerator.Cell) {
         if (start == target) {
             var result = std.ArrayListUnmanaged(*MazeGenerator.Cell).empty;
@@ -584,73 +524,62 @@ pub const MazeAStar = struct {
             return result;
         }
 
-        const size = @as(usize, @intCast(self.width * self.height));
+        const width = self.width;
+        const size: usize = @intCast(width * self.height);
+
+        const start_idx: usize = @intCast(start.y * width + start.x);
+        const target_idx: usize = @intCast(target.y * width + target.x);
+
         const came_from = try self.allocator.alloc(i32, size);
         defer self.allocator.free(came_from);
+        @memset(came_from, -1);
+
         const g_score = try self.allocator.alloc(i32, size);
         defer self.allocator.free(g_score);
+        @memset(g_score, std.math.maxInt(i32));
+
         const best_f = try self.allocator.alloc(i32, size);
         defer self.allocator.free(best_f);
+        @memset(best_f, std.math.maxInt(i32));
 
-        for (0..size) |i| {
-            came_from[i] = -1;
-            g_score[i] = std.math.maxInt(i32);
-            best_f[i] = std.math.maxInt(i32);
-        }
-
-        const start_idx = @as(usize, @intCast(start.y * self.width + start.x));
-        const target_idx = @as(usize, @intCast(target.y * self.width + target.x));
-
-        var open_set = try PriorityQueue.init(self.allocator, size);
-        defer open_set.deinit();
-
-        var in_open = try self.allocator.alloc(u8, size);
-        defer self.allocator.free(in_open);
-        @memset(in_open, 0);
+        var open_set: AStarQueue = .empty;
+        defer open_set.deinit(self.allocator);
 
         g_score[start_idx] = 0;
         const f_start = heuristic(start, target);
-        try open_set.push(@intCast(start_idx), f_start);
+
+        try open_set.push(self.allocator, AStarEntry{ .priority = f_start, .vertex = @intCast(start_idx) });
         best_f[start_idx] = f_start;
-        in_open[start_idx] = 1;
 
-        while (open_set.size > 0) {
-            const current_idx = open_set.pop() orelse break;
-            in_open[@intCast(current_idx)] = 0;
+        while (open_set.pop()) |entry| {
+            const current_idx = entry.vertex;
 
-            if (current_idx == target_idx) {
-                var result = std.ArrayListUnmanaged(*MazeGenerator.Cell).empty;
-                errdefer result.deinit(self.allocator);
-                var cur = @as(i32, @intCast(current_idx));
-                while (cur != -1) {
-                    const cell = self.maze.?.cells[@intCast(cur)];
-                    try result.append(self.allocator, cell);
-                    cur = came_from[@intCast(cur)];
-                }
-                std.mem.reverse(*MazeGenerator.Cell, result.items);
-                return result;
+            if (current_idx == @as(i32, @intCast(target_idx))) {
+                return try self.reconstructPath(came_from, current_idx);
             }
 
-            const current_g = g_score[@intCast(current_idx)];
-            const current_cell = self.maze.?.cells[@intCast(current_idx)];
+            const current_y: i32 = @divTrunc(current_idx, width);
+            const current_x: i32 = @rem(current_idx, width);
+            const current = &self.maze.?.cells[@intCast(current_y)][@intCast(current_x)];
 
-            for (current_cell.neighbors.items) |neighbor| {
+            const current_g = g_score[@intCast(current_idx)];
+
+            var i: u8 = 0;
+            while (i < current.neighbor_count) : (i += 1) {
+                const neighbor = current.neighbors[i];
                 if (!neighbor.kind.isWalkable()) continue;
 
-                const neighbor_idx = @as(usize, @intCast(neighbor.y * self.width + neighbor.x));
+                const neighbor_idx: usize = @intCast(neighbor.y * width + neighbor.x);
                 const tentative_g = current_g + 1;
 
                 if (tentative_g < g_score[neighbor_idx]) {
-                    came_from[neighbor_idx] = @intCast(current_idx);
+                    came_from[neighbor_idx] = current_idx;
                     g_score[neighbor_idx] = tentative_g;
                     const f_new = tentative_g + heuristic(neighbor, target);
 
                     if (f_new < best_f[neighbor_idx]) {
                         best_f[neighbor_idx] = f_new;
-                        if (in_open[neighbor_idx] == 0) {
-                            try open_set.push(@intCast(neighbor_idx), f_new);
-                            in_open[neighbor_idx] = 1;
-                        }
+                        try open_set.push(self.allocator, AStarEntry{ .priority = f_new, .vertex = @intCast(neighbor_idx) });
                     }
                 }
             }
@@ -676,7 +605,6 @@ pub const MazeAStar = struct {
 
     fn prepareImpl(ptr: *anyopaque) void {
         const self: *MazeAStar = @ptrCast(@alignCast(ptr));
-        self.maze = MazeGenerator.Maze.init(self.allocator, self.helper, self.width, self.height) catch return;
         self.maze.?.generate() catch return;
         self.result_val = 0;
         self.path = .empty;

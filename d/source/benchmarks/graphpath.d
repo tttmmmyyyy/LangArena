@@ -206,83 +206,20 @@ public:
 class GraphPathAStar : GraphPathBenchmark
 {
 private:
-    struct PriorityQueueItem
+    struct Node
     {
-        int vertex;
         int priority;
-    }
+        int vertex;
 
-    struct PriorityQueue
-    {
-        PriorityQueueItem[] items;
-        int size;
-
-        static PriorityQueue opCall()
+        bool opCmp(const Node other) const
         {
-            PriorityQueue pq;
-            pq.items = new PriorityQueueItem[16];
-            pq.size = 0;
-            return pq;
-        }
-
-        void push(int vertex, int priority)
-        {
-            if (size >= items.length)
-            {
-                items.length *= 2;
-            }
-
-            int i = size++;
-            while (i > 0)
-            {
-                int parent = (i - 1) / 2;
-                if (items[parent].priority <= priority)
-                    break;
-                items[i] = items[parent];
-                i = parent;
-            }
-            items[i] = PriorityQueueItem(vertex, priority);
-        }
-
-        PriorityQueueItem pop()
-        {
-            auto min = items[0];
-            size--;
-
-            if (size > 0)
-            {
-                auto last = items[size];
-                int i = 0;
-
-                while (true)
-                {
-                    int left = 2 * i + 1;
-                    int right = 2 * i + 2;
-                    int smallest = i;
-
-                    if (left < size && items[left].priority < items[smallest].priority)
-                        smallest = left;
-                    if (right < size && items[right].priority < items[smallest].priority)
-                        smallest = right;
-
-                    if (smallest == i)
-                        break;
-
-                    items[i] = items[smallest];
-                    i = smallest;
-                }
-
-                items[i] = last;
-            }
-
-            return min;
-        }
-
-        bool empty() const
-        {
-            return size == 0;
+            if (priority != other.priority)
+                return priority > other.priority;
+            return vertex > other.vertex;
         }
     }
+
+    alias AStarQueue = BinaryHeap!(Array!Node, "a.opCmp(b) > 0");
 
     int heuristic(int v, int target)
     {
@@ -294,53 +231,49 @@ private:
         if (start == target)
             return 0;
 
-        int[] gScore = new int[graph.vertices];
-        int[] fScore = new int[graph.vertices];
-        bool[] visited = new bool[graph.vertices];
+        int n = graph.vertices;
 
-        foreach (i; 0 .. graph.vertices)
+        int[] gScore = new int[n];
+        int[] bestF = new int[n];
+
+        foreach (i; 0 .. n)
         {
             gScore[i] = int.max;
-            fScore[i] = int.max;
+            bestF[i] = int.max;
         }
+
         gScore[start] = 0;
-        fScore[start] = heuristic(start, target);
+        int fStart = heuristic(start, target);
+        bestF[start] = fStart;
 
-        auto openSet = PriorityQueue.opCall();
-        openSet.push(start, fScore[start]);
-
-        bool[] inOpenSet = new bool[graph.vertices];
-        inOpenSet[start] = true;
+        auto openSet = AStarQueue();
+        openSet.insert(Node(fStart, start));
 
         while (!openSet.empty())
         {
-            auto current = openSet.pop();
-            inOpenSet[current.vertex] = false;
+            auto current = openSet.front();
+            openSet.removeFront();
 
-            if (current.vertex == target)
+            int currentVertex = current.vertex;
+
+            if (currentVertex == target)
             {
-                return gScore[current.vertex];
+                return gScore[currentVertex];
             }
 
-            visited[current.vertex] = true;
-
-            foreach (neighbor; graph.adj[current.vertex])
+            foreach (neighbor; graph.adj[currentVertex])
             {
-                if (visited[neighbor])
-                    continue;
-
-                int tentativeG = gScore[current.vertex] + 1;
+                int tentativeG = gScore[currentVertex] + 1;
 
                 if (tentativeG < gScore[neighbor])
                 {
                     gScore[neighbor] = tentativeG;
-                    int f = tentativeG + heuristic(neighbor, target);
-                    fScore[neighbor] = f;
+                    int fNew = tentativeG + heuristic(neighbor, target);
 
-                    if (!inOpenSet[neighbor])
+                    if (fNew < bestF[neighbor])
                     {
-                        openSet.push(neighbor, f);
-                        inOpenSet[neighbor] = true;
+                        bestF[neighbor] = fNew;
+                        openSet.insert(Node(fNew, neighbor));
                     }
                 }
             }

@@ -2,6 +2,11 @@ const std = @import("std");
 const Helper = @import("helper.zig").Helper;
 const Benchmark = @import("benchmark.zig").Benchmark;
 
+pub const Pair = struct {
+    vertex: i32,
+    distance: i32,
+};
+
 pub const Graph = struct {
     allocator: std.mem.Allocator,
     vertices: usize,
@@ -113,26 +118,26 @@ pub const GraphPathBFS = struct {
         }
     }
 
-    fn bfsShortestPath(self: *const GraphPathBFS, start: usize, target: usize, visited: []u8, queue: *std.ArrayList([2]i32), queue_allocator: std.mem.Allocator) i32 {
+    fn bfsShortestPath(self: *const GraphPathBFS, start: usize, target: usize, visited: []u8, queue: *std.ArrayList(Pair), queue_allocator: std.mem.Allocator) i32 {
         if (start == target) return 0;
 
         @memset(visited, 0);
         queue.clearRetainingCapacity();
 
         visited[start] = 1;
-        queue.append(queue_allocator, .{ @as(i32, @intCast(start)), 0 }) catch return -1;
+        queue.append(queue_allocator, .{ .vertex = @as(i32, @intCast(start)), .distance = 0 }) catch return -1;
 
         var front: usize = 0;
         while (front < queue.items.len) {
             const current = queue.items[front];
             front += 1;
 
-            for (self.graph.adj.items[@as(usize, @intCast(current[0]))].items) |neighbor| {
-                if (neighbor == target) return current[1] + 1;
+            for (self.graph.adj.items[@as(usize, @intCast(current.vertex))].items) |neighbor| {
+                if (neighbor == target) return current.distance + 1;
 
                 if (visited[neighbor] == 0) {
                     visited[neighbor] = 1;
-                    queue.append(queue_allocator, .{ @as(i32, @intCast(neighbor)), current[1] + 1 }) catch return -1;
+                    queue.append(queue_allocator, .{ .vertex = @as(i32, @intCast(neighbor)), .distance = current.distance + 1 }) catch return -1;
                 }
             }
         }
@@ -150,7 +155,7 @@ pub const GraphPathBFS = struct {
 
         const visited = arena_allocator.alloc(u8, self.graph.vertices) catch return;
 
-        var queue: std.ArrayList([2]i32) = .empty;
+        var queue: std.ArrayList(Pair) = .empty;
         defer queue.deinit(arena_allocator);
 
         const length = self.bfsShortestPath(0, self.graph.vertices - 1, visited, &queue, arena_allocator);
@@ -236,18 +241,18 @@ pub const GraphPathDFS = struct {
         defer allocator.free(visited);
         @memset(visited, 0);
 
-        var stack: std.ArrayList([2]i32) = .empty;
+        var stack: std.ArrayList(Pair) = .empty;
         defer stack.deinit(allocator);
 
         const INF = std.math.maxInt(i32);
         var best_path: i32 = INF;
 
-        stack.append(allocator, .{ @as(i32, @intCast(start)), 0 }) catch return -1;
+        stack.append(allocator, .{ .vertex = @as(i32, @intCast(start)), .distance = 0 }) catch return -1;
 
         while (stack.items.len > 0) {
             const current = stack.pop().?;
-            const vertex = @as(usize, @intCast(current[0]));
-            const distance = current[1];
+            const vertex = @as(usize, @intCast(current.vertex));
+            const distance = current.distance;
 
             if (visited[vertex] == 1 or distance >= best_path) continue;
             visited[vertex] = 1;
@@ -258,7 +263,7 @@ pub const GraphPathDFS = struct {
                         best_path = distance + 1;
                     }
                 } else if (visited[neighbor] == 0) {
-                    stack.append(allocator, .{ @as(i32, @intCast(neighbor)), distance + 1 }) catch return -1;
+                    stack.append(allocator, .{ .vertex = @as(i32, @intCast(neighbor)), .distance = distance + 1 }) catch return -1;
                 }
             }
         }
@@ -306,9 +311,18 @@ pub const GraphPathAStar = struct {
     };
 
     const Node = struct {
+        priority: i32,
         vertex: i32,
-        f_score: i32,
     };
+
+    fn compareNode(_: void, a: Node, b: Node) std.math.Order {
+        if (a.priority != b.priority) {
+            return std.math.order(a.priority, b.priority);
+        }
+        return std.math.order(a.vertex, b.vertex);
+    }
+
+    const AStarQueue = std.PriorityQueue(Node, void, compareNode);
 
     pub fn init(allocator: std.mem.Allocator, helper: *Helper) !*GraphPathAStar {
         const self = try allocator.create(GraphPathAStar);
@@ -366,51 +380,37 @@ pub const GraphPathAStar = struct {
         const g_score = allocator.alloc(i32, vertices) catch return -1;
         defer allocator.free(g_score);
         @memset(g_score, INF);
+
+        const best_f = allocator.alloc(i32, vertices) catch return -1;
+        defer allocator.free(best_f);
+        @memset(best_f, INF);
+
         g_score[start] = 0;
+        const f_start = heuristic(start, target);
+        best_f[start] = f_start;
 
-        const in_open_set = allocator.alloc(u8, vertices) catch return -1;
-        defer allocator.free(in_open_set);
-        @memset(in_open_set, 0);
-
-        const closed = allocator.alloc(u8, vertices) catch return -1;
-        defer allocator.free(closed);
-        @memset(closed, 0);
-
-        var open_set = std.PriorityQueue(Node, void, struct {
-            fn lessThan(_: void, a: Node, b: Node) std.math.Order {
-                if (a.f_score < b.f_score) return .lt;
-                if (a.f_score > b.f_score) return .gt;
-                return .eq;
-            }
-        }.lessThan).empty;
+        var open_set: AStarQueue = .empty;
         defer open_set.deinit(allocator);
 
-        open_set.push(allocator, .{ .vertex = @intCast(start), .f_score = heuristic(start, target) }) catch return -1;
-        in_open_set[start] = 1;
+        open_set.push(allocator, .{ .priority = f_start, .vertex = @intCast(start) }) catch return -1;
 
-        while (open_set.pop()) |current| {
-            const cur = @as(usize, @intCast(current.vertex));
+        while (open_set.pop()) |entry| {
+            const current = @as(usize, @intCast(entry.vertex));
 
-            if (closed[cur] == 1) continue;
-            closed[cur] = 1;
-            in_open_set[cur] = 0;
-
-            if (cur == target) {
-                return g_score[cur];
+            if (current == target) {
+                return g_score[current];
             }
 
-            for (self.graph.adj.items[cur].items) |neighbor| {
-                if (closed[neighbor] == 1) continue;
-
-                const tentative_g = g_score[cur] + 1;
+            for (self.graph.adj.items[current].items) |neighbor| {
+                const tentative_g = g_score[current] + 1;
 
                 if (tentative_g < g_score[neighbor]) {
                     g_score[neighbor] = tentative_g;
-                    const f = tentative_g + heuristic(neighbor, target);
+                    const f_new = tentative_g + heuristic(neighbor, target);
 
-                    if (in_open_set[neighbor] == 0) {
-                        open_set.push(allocator, .{ .vertex = @intCast(neighbor), .f_score = f }) catch return -1;
-                        in_open_set[neighbor] = 1;
+                    if (f_new < best_f[neighbor]) {
+                        best_f[neighbor] = f_new;
+                        open_set.push(allocator, .{ .priority = f_new, .vertex = @intCast(neighbor) }) catch return -1;
                     }
                 }
             }

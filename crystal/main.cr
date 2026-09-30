@@ -583,6 +583,14 @@ module Matmul
   end
 
   class T4 < Single
+    @pool : Fiber::ExecutionContext::Parallel
+
+    def initialize(@n : Int64 = config_val("n"))
+      super(@n)
+      @pool = Fiber::ExecutionContext::Parallel.new("matmul-pool-#{num_threads}", maximum: num_threads)
+      @pool.resize(num_threads)
+    end
+
     def matmul_parallel(n, threads, a, b)
       t = Array.new(n) { Array.new(n, 0.0) }
       n.times do |i|
@@ -596,7 +604,7 @@ module Matmul
       rows_per_worker = (n + threads - 1) // threads
 
       threads.times do |worker_id|
-        spawn do
+        @pool.spawn do
           start_row = worker_id * rows_per_worker
           end_row = Math.min(start_row + rows_per_worker, n)
 
@@ -1192,8 +1200,8 @@ module Etc
       private class Node(K, V)
         property key : K
         property value : V
-        property prev : Node(K, V) | Nil
-        property next : Node(K, V) | Nil
+        property prev : Node(K, V)?
+        property next : Node(K, V)?
 
         def initialize(@key, @value, @prev = nil, @next = nil)
         end
@@ -1201,8 +1209,8 @@ module Etc
 
       @capacity : Int32
       @cache = {} of K => Node(K, V)
-      @head : Node(K, V) | Nil = nil
-      @tail : Node(K, V) | Nil = nil
+      @head : Node(K, V)?
+      @tail : Node(K, V)?
       @size = 0
 
       def initialize(@capacity)
@@ -1778,7 +1786,6 @@ module Graph
 
     def prepare
       @graph.generate_random
-      total_edges = @graph.adj.sum(&.size) // 2
     end
 
     def test : Int64
@@ -1934,36 +1941,33 @@ module Graph
     private def astar_shortest_path(start, target)
       return 0 if start == target
 
-      g_score = Array.new(@graph.vertices, Int32::MAX)
+      n = @graph.vertices
+
+      g_score = Array.new(n, Int32::MAX)
+      best_f = Array.new(n, Int32::MAX)
+
       g_score[start] = 0
+      f_start = heuristic(start, target)
+      best_f[start] = f_start
 
       open_set = PriorityQueue.new
-      open_set.push(start, heuristic(start, target))
-
-      in_open_set = Array.new(@graph.vertices, false)
-      in_open_set[start] = true
-
-      closed = Array.new(@graph.vertices, false)
+      open_set.push(start, f_start)
 
       while !open_set.empty?
         current, _ = open_set.pop
-        closed[current] = true
-        in_open_set[current] = false
 
         return g_score[current] if current == target
 
         @graph.adj[current].each do |neighbor|
-          next if closed[neighbor]
-
           tentative_g = g_score[current] + 1
 
           if tentative_g < g_score[neighbor]
             g_score[neighbor] = tentative_g
-            f = tentative_g + heuristic(neighbor, target)
+            f_new = tentative_g + heuristic(neighbor, target)
 
-            unless in_open_set[neighbor]
-              open_set.push(neighbor, f)
-              in_open_set[neighbor] = true
+            if f_new < best_f[neighbor]
+              best_f[neighbor] = f_new
+              open_set.push(neighbor, f_new)
             end
           end
         end
@@ -2147,37 +2151,63 @@ module Calculator
     end
 
     class Parser
+      CHAR_EOF     = '\0'
+      CHAR_PLUS    = '+'
+      CHAR_MINUS   = '-'
+      CHAR_STAR    = '*'
+      CHAR_SLASH   = '/'
+      CHAR_PERCENT = '%'
+      CHAR_LPAREN  = '('
+      CHAR_RPAREN  = ')'
+      CHAR_EQUALS  = '='
+      CHAR_ZERO    = '0'
+      CHAR_NINE    = '9'
+      CHAR_A_LOWER = 'a'
+      CHAR_Z_LOWER = 'z'
+      CHAR_A_UPPER = 'A'
+      CHAR_Z_UPPER = 'Z'
+      CHAR_SPACE   = ' '
+      CHAR_TAB     = '\t'
+      CHAR_NEWLINE = '\n'
+      CHAR_CR      = '\r'
+
       @input : String
       @pos : Int32
       @len : Int32
-      getter current_char : Char
-      @chars : Array(Char)
+      @current : Char
 
       getter expressions
 
       def initialize(@input)
         @pos = 0
-        @chars = @input.chars
-        @current_char = @chars.size > 0 ? @chars[0] : '\0'
         @len = @input.size
+        @current = @len > 0 ? @input[0] : CHAR_EOF
         @expressions = Array(Node).new
       end
 
       def parse
-        while @pos < @len
+        while @current != CHAR_EOF
+          skip_whitespace
+          break if @current == CHAR_EOF
+
           @expressions << parse_expression
+
+          skip_whitespace
+          while @current == CHAR_NEWLINE
+            advance
+            skip_whitespace
+          end
         end
       end
 
       def parse_expression : Node
         node = parse_term
 
-        while @pos < @len
+        while true
           skip_whitespace
-          break if @pos >= @len
 
-          if current_char == '+' || current_char == '-'
-            op = current_char
+          if @current == CHAR_PLUS || @current == CHAR_MINUS
+            op = @current
             advance
             right = parse_term
             node = BinaryOp.new(op, node, right)
@@ -2192,12 +2222,11 @@ module Calculator
       def parse_term : Node
         node = parse_factor
 
-        while @pos < @len
+        while true
           skip_whitespace
-          break if @pos >= @len
 
-          if current_char == '*' || current_char == '/' || current_char == '%'
-            op = current_char
+          if @current == CHAR_STAR || @current == CHAR_SLASH || @current == CHAR_PERCENT
+            op = @current
             advance
             right = parse_factor
             node = BinaryOp.new(op, node, right)
@@ -2211,31 +2240,29 @@ module Calculator
 
       def parse_factor : Node
         skip_whitespace
-        return Number.new(0) if @pos >= @len
 
-        case current_char
-        when '0'..'9'
+        if is_digit?(@current)
           parse_number
-        when 'a'..'z'
+        elsif is_letter?(@current)
           parse_variable
-        when '('
+        elsif @current == CHAR_LPAREN
           advance
           node = parse_expression
           skip_whitespace
-          if current_char == ')'
+          if @current == CHAR_RPAREN
             advance
           end
           node
         else
+          advance
           Number.new(0)
         end
       end
 
       def parse_number : Node
-        start = @pos
         v = 0_i64
-        while @pos < @len && current_char.ascii_number?
-          v = v &* 10 &+ @current_char.to_i64
+        while is_digit?(@current)
+          v = v &* 10 &+ (@current - CHAR_ZERO).to_i64
           advance
         end
         Number.new(v)
@@ -2243,13 +2270,13 @@ module Calculator
 
       def parse_variable : Node
         start = @pos
-        while @pos < @len && (current_char.ascii_letter? || current_char.ascii_number?)
+        while is_letter?(@current) || is_digit?(@current)
           advance
         end
         var_name = @input[start...@pos]
 
         skip_whitespace
-        if current_char == '='
+        if @current == CHAR_EQUALS
           advance
           expr = parse_expression
           return Assignment.new(var_name, expr)
@@ -2261,16 +2288,29 @@ module Calculator
       def advance
         @pos += 1
         if @pos >= @len
-          @current_char = '\0'
+          @current = CHAR_EOF
         else
-          @current_char = @chars[@pos]
+          @current = @input[@pos]
         end
       end
 
       def skip_whitespace
-        while @pos < @len && current_char.ascii_whitespace?
+        while is_whitespace?(@current)
           advance
         end
+      end
+
+      private def is_digit?(char : Char) : Bool
+        char >= CHAR_ZERO && char <= CHAR_NINE
+      end
+
+      private def is_letter?(char : Char) : Bool
+        (char >= CHAR_A_LOWER && char <= CHAR_Z_LOWER) ||
+          (char >= CHAR_A_UPPER && char <= CHAR_Z_UPPER)
+      end
+
+      private def is_whitespace?(char : Char) : Bool
+        char == CHAR_SPACE || char == CHAR_TAB || char == CHAR_NEWLINE || char == CHAR_CR
       end
     end
 
@@ -2443,7 +2483,7 @@ module Maze
       end
 
       def dig(start : Cell)
-        q = Array(Cell).new
+        q = Array(Cell).new(initial_capacity: @w * @h)
         q << start
         while cell = q.pop?
           if cell.neighbors.count(&.kind.walkable?) == 1
@@ -2599,12 +2639,21 @@ module Maze
 
   class AStar < Benchmark
     private class PriorityQueue
-      @heap = Array({Int32, Int32}).new
-      @size : Int32 = 0
-      @best_priority : Array(Int32)
+      struct Entry
+        property priority : Int32
+        property vertex : Int32
 
-      def initialize(size)
-        @best_priority = Array.new(size, Int32::MAX)
+        def initialize(@priority, @vertex)
+        end
+      end
+
+      @heap : Array(Entry)
+      @size : Int32 = 0
+      @capacity : Int32
+
+      def initialize(capacity : Int32)
+        @capacity = capacity
+        @heap = Array(Entry).new(capacity)
       end
 
       def empty?
@@ -2612,29 +2661,29 @@ module Maze
       end
 
       def push(vertex : Int32, priority : Int32)
-        return if priority >= @best_priority[vertex]
-
-        @best_priority[vertex] = priority
-
-        if @size >= @heap.size
-          @heap << {vertex, priority}
-        else
-          @heap[@size] = {vertex, priority}
+        if @size >= @capacity
+          @capacity *= 2
         end
 
         i = @size
         @size += 1
 
+        if i >= @heap.size
+          @heap << Entry.new(priority, vertex)
+        else
+          @heap[i] = Entry.new(priority, vertex)
+        end
+
         while i > 0
           parent = (i - 1) // 2
-          break if @heap[parent][1] <= priority
+          break if @heap[parent].priority <= priority
           @heap[i] = @heap[parent]
           i = parent
         end
-        @heap[i] = {vertex, priority}
+        @heap[i] = Entry.new(priority, vertex)
       end
 
-      def pop
+      def pop : Entry
         min = @heap[0]
         @size -= 1
 
@@ -2647,10 +2696,10 @@ module Maze
             right = 2*i + 2
             smallest = i
 
-            if left < @size && @heap[left][1] < @heap[smallest][1]
+            if left < @size && @heap[left].priority < @heap[smallest].priority
               smallest = left
             end
-            if right < @size && @heap[right][1] < @heap[smallest][1]
+            if right < @size && @heap[right].priority < @heap[smallest].priority
               smallest = right
             end
 
@@ -2698,16 +2747,18 @@ module Maze
 
       came_from = Array(Int32).new(size, -1)
       g_score = Array(Int32).new(size, Int32::MAX)
-      f_score = Array(Int32).new(size, Int32::MAX)
+      best_f = Array(Int32).new(size, Int32::MAX)
 
       open_set = PriorityQueue.new(size)
 
       g_score[start_idx] = 0
-      f_score[start_idx] = heuristic(start, target)
-      open_set.push(start_idx, f_score[start_idx])
+      f_start = heuristic(start, target)
+      open_set.push(start_idx, f_start)
+      best_f[start_idx] = f_start
 
       while !open_set.empty?
-        current_idx, _ = open_set.pop
+        entry = open_set.pop
+        current_idx = entry.vertex
 
         if current_idx == target_idx
           return reconstruct_path(came_from, current_idx)
@@ -2728,10 +2779,12 @@ module Maze
           if tentative_g < g_score[neighbor_idx]
             came_from[neighbor_idx] = current_idx
             g_score[neighbor_idx] = tentative_g
-            new_f = tentative_g + heuristic(neighbor, target)
-            f_score[neighbor_idx] = new_f
+            f_new = tentative_g + heuristic(neighbor, target)
 
-            open_set.push(neighbor_idx, new_f)
+            if f_new < best_f[neighbor_idx]
+              best_f[neighbor_idx] = f_new
+              open_set.push(neighbor_idx, f_new)
+            end
           end
         end
       end
@@ -2849,10 +2902,10 @@ module CLBG
       byte_acc = 0_u8
 
       h.times do |y|
+        ci = (2.0 * y / h - 1.0)
         w.times do |x|
           zr = zi = tr = ti = 0.0
           cr = (2.0 * x / w - 1.5)
-          ci = (2.0 * y / h - 1.0)
 
           i = 0
           while (i < ITER) && (tr + ti <= LIMIT * LIMIT)
@@ -3109,8 +3162,6 @@ module Compress
       n = input.bytesize
       return BWTResult.new(Bytes.new(0), 0) if n == 0
 
-      sa = Array.new(n) { |i| i }
-
       counts = Array.new(256, 0)
       input.each { |byte| counts[byte] += 1 }
 
@@ -3121,23 +3172,22 @@ module Compress
         total += counts[i]
       end
 
+      sa = Array.new(n, 0)
       temp_counts = Array.new(256, 0)
-      sorted_sa = Array.new(n, 0)
       n.times do |i|
-        idx = sa[i]
-        byte = input[idx]
+        byte = input[i]
         pos = positions[byte] + temp_counts[byte]
-        sorted_sa[pos] = idx
+        sa[pos] = i
         temp_counts[byte] += 1
       end
-      sa = sorted_sa
 
       if n > 1
         rank = Array.new(n, 0)
         current_rank = 0
         prev_char = input[sa[0]]
 
-        sa.each_with_index do |idx, i|
+        n.times do |i|
+          idx = sa[i]
           if input[idx] != prev_char
             current_rank += 1
             prev_char = input[idx]
@@ -3150,21 +3200,22 @@ module Compress
           pairs = Array.new(n) { |i| {rank[i], rank[(i + k) % n]} }
 
           sa.sort! do |a, b|
-            pair_a = pairs[a]
-            pair_b = pairs[b]
-            if pair_a[0] != pair_b[0]
-              pair_a[0] <=> pair_b[0]
+            pa = pairs[a]
+            pb = pairs[b]
+            if pa[0] != pb[0]
+              pa[0] <=> pb[0]
             else
-              pair_a[1] <=> pair_b[1]
+              pa[1] <=> pb[1]
             end
           end
 
           new_rank = Array.new(n, 0)
           new_rank[sa[0]] = 0
           (1...n).each do |i|
-            prev_pair = pairs[sa[i - 1]]
-            curr_pair = pairs[sa[i]]
-            new_rank[sa[i]] = new_rank[sa[i - 1]] + (prev_pair != curr_pair ? 1 : 0)
+            prev = sa[i - 1]
+            curr = sa[i]
+            same = pairs[prev] == pairs[curr]
+            new_rank[curr] = new_rank[prev] + (same ? 0 : 1)
           end
 
           rank = new_rank
@@ -3754,11 +3805,7 @@ module Compress
         range = (high - low + 1).to_u64
         scaled = ((value - low + 1) * total - 1) // range
 
-        symbol = 0_u8
-        while symbol < 255 && high_table[symbol] <= scaled
-          symbol += 1_u8
-        end
-
+        symbol = high_table.bsearch_index { |x| x > scaled }.not_nil!.to_u8
         result[j] = symbol
 
         high = low + (range * high_table[symbol] // total) - 1
@@ -3861,7 +3908,7 @@ module Compress
   end
 
   class LZWDecode < Benchmark
-    def lzw_decode(encoded : LZWEncode::LZWResult) : Bytes
+    def lzw_decode(encoded : LZWEncode::LZWResult) : Bytes?
       return Bytes.new(0) if encoded.data.empty?
 
       dict = Array(String).new(4096)
@@ -3895,7 +3942,7 @@ module Compress
         elsif new_code == next_code
           new_str = old_str + old_str[0]
         else
-          raise "Error decode"
+          return Bytes.new(0)
         end
 
         result.write(new_str.to_slice)
@@ -4165,7 +4212,7 @@ class CSV
     end
 
     def checksum : UInt32
-      @checksum
+      @checksum &+ Helper.checksum(@data)
     end
   end
 end

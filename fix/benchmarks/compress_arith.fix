@@ -6,7 +6,7 @@ import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Benchmarks.Compress::{byte_frequencies, generate_text};
 import LangArena.Helper::config_i64;
 import Std::{
-    loop, Array, I64, String, U32, U64, U8, Array::{empty, fill, push_back, set, @, @size}, 
+    loop, Array, I64, String, U32, U64, U8, Array::{empty, fill, push_back, search_partition_point, set, @, @size}, 
     Iterator::{fold, map, range, sum}, LoopState::{break, continue}, ToI64::i64, ToU32::u32, ToU64::u64, 
     ToU8::u8, U64::{bit_and, bit_or, shift_left}, U8::{bit_and, bit_or, shift_left, shift_right}
 };
@@ -150,10 +150,7 @@ _read = |coded| (
         (Array::empty(total), number, 0_U64, _whole, 32), |_, (text, number, low, high, at)|
         let width = high - low + 1_U64;
         let scaled = ((number - low + 1_U64) * total.u64 - 1_U64) / width;
-        let value = loop(0, |value|
-            if value == 255 || ends.@(value).u64 > scaled { break $ value };
-            continue $ value + 1
-        );
+        let value = ends.search_partition_point(|end| end.u64 <= scaled);
         let high = low + width * ends.@(value).u64 / total.u64 - 1_U64;
         let low = low + width * begins.@(value).u64 / total.u64;
         let (number, low, high, at) = loop((number, low, high, at), |(number, low, high, at)|

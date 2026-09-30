@@ -168,29 +168,27 @@ public class GraphPathAStar : GraphPathBenchmark
     {
         if (start == target) return 0;
 
-        int[] gScore = new int[_graph.Vertices];
-        int[] fScore = new int[_graph.Vertices];
-        for (int i = 0; i < _graph.Vertices; i++)
+        int n = _graph.Vertices;
+
+        int[] gScore = new int[n];
+        int[] bestF = new int[n];
+
+        for (int i = 0; i < n; i++)
         {
             gScore[i] = int.MaxValue;
-            fScore[i] = int.MaxValue;
+            bestF[i] = int.MaxValue;
         }
 
         gScore[start] = 0;
-        fScore[start] = Heuristic(start, target);
+        int fStart = Heuristic(start, target);
+        bestF[start] = fStart;
 
-        var openSet = new PriorityQueue<(int vertex, int priority), int>(
-            Comparer<int>.Create((a, b) => a.CompareTo(b))
-        );
-        openSet.Enqueue((start, fScore[start]), fScore[start]);
-
-        var openSetHash = new HashSet<int>();
-        openSetHash.Add(start);
+        var openSet = new PriorityQueue<int, int>();
+        openSet.Enqueue(start, fStart);
 
         while (openSet.Count > 0)
         {
-            var (current, _) = openSet.Dequeue();
-            openSetHash.Remove(current);
+            int current = openSet.Dequeue();
 
             if (current == target)
             {
@@ -204,13 +202,12 @@ public class GraphPathAStar : GraphPathBenchmark
                 if (tentativeG < gScore[neighbor])
                 {
                     gScore[neighbor] = tentativeG;
-                    int f = tentativeG + Heuristic(neighbor, target);
-                    fScore[neighbor] = f;
+                    int fNew = tentativeG + Heuristic(neighbor, target);
 
-                    if (!openSetHash.Contains(neighbor))
+                    if (fNew < bestF[neighbor])
                     {
-                        openSet.Enqueue((neighbor, f), f);
-                        openSetHash.Add(neighbor);
+                        bestF[neighbor] = fNew;
+                        openSet.Enqueue(neighbor, fNew);
                     }
                 }
             }

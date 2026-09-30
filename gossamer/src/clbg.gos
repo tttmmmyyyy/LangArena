@@ -1,0 +1,368 @@
+use std::math
+use bench::Bench
+use config::Config
+use helper
+
+pub struct Fannkuchredux {
+    n: i64
+    result: u32
+}
+
+impl Fannkuchredux {
+    pub fn new(cfg: Config) -> Fannkuchredux {
+        Fannkuchredux { n: cfg.int("CLBG::Fannkuchredux", "n"), result: 0 }
+    }
+
+    fn fannkuch(&self, n: i64) -> (i64, i64) {
+        let mut perm1: [i64; 32] = [0; 32]
+        for i in 0..32 { perm1[i] = i }
+
+        let mut perm: [i64; 32] = [0; 32]
+        let mut count: [i64; 32] = [0; 32]
+        let mut max_flips = 0
+        let mut perm_count = 0
+        let mut checksum = 0
+        let mut r = n
+
+        loop {
+            while r > 1 {
+                count[r - 1] = r
+                r -= 1
+            }
+
+            for i in 0..n { perm[i] = perm1[i] }
+
+            let mut flips = 0
+            let mut k = perm[0]
+            while k != 0 {
+                let k2 = (k + 1) >> 1
+                for i in 0..k2 { perm.swap(i, k - i) }
+                flips += 1
+                k = perm[0]
+            }
+
+            if flips > max_flips { max_flips = flips }
+            if perm_count % 2 == 0 { checksum += flips } else { checksum -= flips }
+
+            loop {
+                if r == n { return (checksum, max_flips) }
+
+                let perm0 = perm1[0]
+                for i in 0..r { perm1.swap(i, i + 1) }
+                perm1[r] = perm0
+
+                count[r] -= 1
+                if count[r] > 0 { break }
+                r += 1
+            }
+
+            perm_count += 1
+        }
+    }
+}
+
+impl Bench for Fannkuchredux {
+    fn run(&mut self, iteration_id: i64) {
+        let checksum, max_flips = self.fannkuch(self.n)
+        self.result +%= checksum as u32 *% 100 +% max_flips as u32
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}
+
+const MANDELBROT_ITER: i64 = 50
+const MANDELBROT_LIMIT: f64 = 2.0
+
+pub struct Mandelbrot {
+    w: i64
+    h: i64
+    bitmap: Vec<u8>
+}
+
+impl Mandelbrot {
+    pub fn new(cfg: Config) -> Mandelbrot {
+        Mandelbrot {
+            w: cfg.int("CLBG::Mandelbrot", "w")
+            h: cfg.int("CLBG::Mandelbrot", "h")
+            bitmap: #[]
+        }
+    }
+}
+
+impl Bench for Mandelbrot {
+    fn run(&mut self, iteration_id: i64) {
+        let w = self.w
+        let h = self.h
+
+        let header = format("P4\n{} {}\n", w, h)
+        self.bitmap.extend_from_slice(header.as_bytes())
+
+        let mut bit_num = 0
+        let mut byte_acc: u8 = 0
+
+        for y in 0..h {
+            let ci = (2.0 * y as f64 / h as f64) - 1.0
+            for x in 0..w {
+                let mut zr = 0.0
+                let mut zi = 0.0
+                let mut tr = 0.0
+                let mut ti = 0.0
+                let cr = (2.0 * x as f64 / w as f64) - 1.5
+
+                let mut i = 0
+                while i < MANDELBROT_ITER && (tr + ti) <= MANDELBROT_LIMIT * MANDELBROT_LIMIT {
+                    zi = 2.0 * zr * zi + ci
+                    zr = tr - ti + cr
+                    tr = zr * zr
+                    ti = zi * zi
+                    i += 1
+                }
+
+                byte_acc <<= 1
+                if tr + ti <= MANDELBROT_LIMIT * MANDELBROT_LIMIT { byte_acc |= 0x01 }
+                bit_num += 1
+
+                if bit_num == 8 {
+                    self.bitmap.push(byte_acc)
+                    byte_acc = 0
+                    bit_num = 0
+                } else if x == w - 1 {
+                    byte_acc <<= (8 - (w % 8)) as u8
+                    self.bitmap.push(byte_acc)
+                    byte_acc = 0
+                    bit_num = 0
+                }
+            }
+        }
+    }
+
+    fn checksum(&self) -> u32 { helper::checksum_bytes(self.bitmap) }
+}
+
+const SOLAR_MASS: f64 = 4.0 * 3.141592653589793 * 3.141592653589793
+const DAYS_PER_YEAR: f64 = 365.24
+
+struct Planet {
+    x: f64
+    y: f64
+    z: f64
+    vx: f64
+    vy: f64
+    vz: f64
+    mass: f64
+}
+
+impl Planet {
+    fn new(x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, mass: f64) -> Planet {
+        Planet {
+            x: x
+            y: y
+            z: z
+            vx: vx * DAYS_PER_YEAR
+            vy: vy * DAYS_PER_YEAR
+            vz: vz * DAYS_PER_YEAR
+            mass: mass * SOLAR_MASS
+        }
+    }
+
+    fn advance(bodies: &mut [Planet], i: i64, dt: f64) {
+        for j in i + 1..bodies.len() {
+            let dx = bodies[i].x - bodies[j].x
+            let dy = bodies[i].y - bodies[j].y
+            let dz = bodies[i].z - bodies[j].z
+
+            let distance = math::sqrt(dx * dx + dy * dy + dz * dz)
+            let mag = dt / (distance * distance * distance)
+            let b_mass_mag = bodies[i].mass * mag
+            let b2_mass_mag = bodies[j].mass * mag
+
+            bodies[i].vx -= dx * b2_mass_mag
+            bodies[i].vy -= dy * b2_mass_mag
+            bodies[i].vz -= dz * b2_mass_mag
+            bodies[j].vx += dx * b_mass_mag
+            bodies[j].vy += dy * b_mass_mag
+            bodies[j].vz += dz * b_mass_mag
+        }
+
+        bodies[i].x += dt * bodies[i].vx
+        bodies[i].y += dt * bodies[i].vy
+        bodies[i].z += dt * bodies[i].vz
+    }
+}
+
+fn energy(bodies: [Planet]) -> f64 {
+    let mut e = 0.0
+    let nbodies = bodies.len()
+
+    for i in 0..nbodies {
+        let b = bodies[i]
+        e += 0.5 * b.mass * (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz)
+
+        for j in i + 1..nbodies {
+            let b2 = bodies[j]
+            let dx = b.x - b2.x
+            let dy = b.y - b2.y
+            let dz = b.z - b2.z
+            let distance = math::sqrt(dx * dx + dy * dy + dz * dz)
+            e -= (b.mass * b2.mass) / distance
+        }
+    }
+    e
+}
+
+fn offset_momentum(bodies: &mut [Planet]) {
+    let mut px = 0.0
+    let mut py = 0.0
+    let mut pz = 0.0
+
+    for b in bodies {
+        let m = b.mass
+        px += b.vx * m
+        py += b.vy * m
+        pz += b.vz * m
+    }
+
+    if !bodies.is_empty() {
+        bodies[0].vx = -px / SOLAR_MASS
+        bodies[0].vy = -py / SOLAR_MASS
+        bodies[0].vz = -pz / SOLAR_MASS
+    }
+}
+
+fn create_bodies() -> Vec<Planet> {
+    #[
+        Planet::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+        Planet::new(
+            4.84143144246472090e+00
+            -1.16032004402742839e+00
+            -1.03622044471123109e-01
+            1.66007664274403694e-03
+            7.69901118419740425e-03
+            -6.90460016972063023e-05
+            9.54791938424326609e-04
+        )
+        Planet::new(
+            8.34336671824457987e+00
+            4.12479856412430479e+00
+            -4.03523417114321381e-01
+            -2.76742510726862411e-03
+            4.99852801234917238e-03
+            2.30417297573763929e-05
+            2.85885980666130812e-04
+        )
+        Planet::new(
+            1.28943695621391310e+01
+            -1.51111514016986312e+01
+            -2.23307578892655734e-01
+            2.96460137564761618e-03
+            2.37847173959480950e-03
+            -2.96589568540237556e-05
+            4.36624404335156298e-05
+        )
+        Planet::new(
+            1.53796971148509165e+01
+            -2.59193146099879641e+01
+            1.79258772950371181e-01
+            2.68067772490389322e-03
+            1.62824170038242295e-03
+            -9.51592254519715870e-05
+            5.15138902046611451e-05
+        )
+    ]
+}
+
+pub struct Nbody {
+    bodies: Vec<Planet>
+    v1: f64
+}
+
+impl Nbody {
+    pub fn new(cfg: Config) -> Nbody { Nbody { bodies: create_bodies(), v1: 0.0 } }
+}
+
+impl Bench for Nbody {
+    fn prepare(&mut self) {
+        offset_momentum(&mut self.bodies)
+        self.v1 = energy(self.bodies)
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        let nbodies = self.bodies.len()
+        let dt = 0.01
+
+        for _ in 0..1000 {
+            let mut i = 0
+            while i < nbodies {
+                Planet::advance(&mut self.bodies, i, dt)
+                i += 1
+            }
+        }
+    }
+
+    fn checksum(&self) -> u32 {
+        let v2 = energy(self.bodies)
+        (helper::checksum_f64(self.v1) << 5) & helper::checksum_f64(v2)
+    }
+}
+
+pub struct Spectralnorm {
+    size: i64
+    u: Vec<f64>
+    v: Vec<f64>
+}
+
+impl Spectralnorm {
+    pub fn new(cfg: Config) -> Spectralnorm {
+        let size = cfg.int("CLBG::Spectralnorm", "size")
+        Spectralnorm { size: size, u: #[1.0; size], v: #[1.0; size] }
+    }
+
+    fn eval_a(&self, i: i64, j: i64) -> f64 {
+        let ij = (i + j) as f64
+        1.0 / (ij * (ij + 1.0) / 2.0 + i as f64 + 1.0)
+    }
+
+    fn eval_a_times_u(&self, u: Vec<f64>) -> Vec<f64> {
+        let n = u.len()
+        let mut result: Vec<f64> = #[0.0; n]
+        for i in 0..n {
+            let mut s = 0.0
+            for j in 0..n { s += self.eval_a(i, j) * u[j] }
+            result[i] = s
+        }
+        result
+    }
+
+    fn eval_at_times_u(&self, u: Vec<f64>) -> Vec<f64> {
+        let n = u.len()
+        let mut result: Vec<f64> = #[0.0; n]
+        for i in 0..n {
+            let mut s = 0.0
+            for j in 0..n { s += self.eval_a(j, i) * u[j] }
+            result[i] = s
+        }
+        result
+    }
+
+    fn eval_ata_times_u(&self, u: Vec<f64>) -> Vec<f64> {
+        self.eval_at_times_u(self.eval_a_times_u(u))
+    }
+}
+
+impl Bench for Spectralnorm {
+    fn run(&mut self, iteration_id: i64) {
+        self.v = self.eval_ata_times_u(self.u)
+        self.u = self.eval_ata_times_u(self.v)
+    }
+
+    fn checksum(&self) -> u32 {
+        let mut vbv = 0.0
+        let mut vv = 0.0
+        for i in 0..self.size {
+            let vi = self.v[i]
+            vbv += self.u[i] * vi
+            vv += vi * vi
+        }
+        helper::checksum_f64(math::sqrt(vbv / vv))
+    }
+}

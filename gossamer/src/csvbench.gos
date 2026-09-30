@@ -1,0 +1,91 @@
+use std::encoding::csv
+use bench::Bench
+use config::Config
+use helper
+
+const ALPHABET: String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+struct Point {
+    x: f64
+    y: f64
+    z: f64
+}
+
+pub struct CsvParse {
+    rows: i64
+    data: String
+    result: u32
+    rng: helper::Rng
+}
+
+impl CsvParse {
+    pub fn new(cfg: Config) -> CsvParse {
+        CsvParse {
+            rows: cfg.int("CSV::Parse", "rows")
+            data: ""
+            result: 0
+            rng: helper::Rng::new()
+        }
+    }
+
+    fn parse_points(&self) -> Vec<Point> {
+        let records = csv::read(self.data).unwrap_or(#[])
+        let mut points = Vec::with_capacity(records.len())
+
+        for record in records {
+            points.push(Point {
+                x: record[1].to_f64().unwrap_or(0.0)
+                y: record[5].to_f64().unwrap_or(0.0)
+                z: record[3].to_f64().unwrap_or(0.0)
+            })
+        }
+
+        points
+    }
+}
+
+impl Bench for CsvParse {
+    fn prepare(&mut self) {
+        let mut data = String::new()
+
+        for i in 0..self.rows {
+            let letter = ALPHABET[i % 26]
+            let x = self.rng.next_float(1.0)
+            let z = self.rng.next_float(1.0)
+            let y = self.rng.next_float(1.0)
+
+            data.push_str(format("\"point {}\\n, \"\"{}\"\"\",", letter, i % 100))
+            data.push_str(format("{:.10},", x))
+            data.push_str(",")
+            data.push_str(format("{:.10},", z))
+            let flag = if i % 2 == 0 { "true" } else { "false" }
+            data.push_str(format("\"[{}\\n, {}]\",", flag, i % 100))
+            data.push_str(format("{:.10}\n", y))
+        }
+
+        self.data = data
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        let points = self.parse_points()
+        if points.is_empty() { return }
+
+        let mut x_sum = 0.0
+        let mut y_sum = 0.0
+        let mut z_sum = 0.0
+
+        for point in points {
+            x_sum += point.x
+            y_sum += point.y
+            z_sum += point.z
+        }
+
+        let count = points.len() as f64
+        self.result +%= helper::checksum_f64(x_sum / count) +% helper::checksum_f64(y_sum / count) +%
+            helper::checksum_f64(z_sum / count)
+    }
+
+    fn checksum(&self) -> u32 {
+        self.result +% helper::checksum_str(self.data)
+    }
+}

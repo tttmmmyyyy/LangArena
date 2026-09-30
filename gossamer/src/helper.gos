@@ -1,0 +1,42 @@
+const IM: i64 = 139_968
+const IA: i64 = 3877
+const IC: i64 = 29573
+const SEED: i64 = 42
+
+pub struct Rng { last: i64 }
+
+impl Rng {
+    pub fn new() -> Rng { Rng { last: SEED } }
+
+    pub fn reset(&mut self) { self.last = SEED }
+
+    pub fn next_int(&mut self, max: i64) -> i64 {
+        self.last = (self.last * IA + IC) % IM
+        (self.last as f64 / IM as f64 * max as f64) as i64
+    }
+
+    pub fn next_float(&mut self, max: f64) -> f64 {
+        self.last = (self.last * IA + IC) % IM
+        max * self.last as f64 / IM as f64
+    }
+}
+
+pub fn checksum_str(v: String) -> u32 {
+    let mut hash: u32 = 5381
+    for b in v.bytes() {
+        hash = (hash << 5) +% hash +% b as u32
+    }
+    hash
+}
+
+pub fn checksum_bytes(v: [u8]) -> u32 {
+    let mut hash: u32 = 5381
+    for b in v {
+        hash = (hash << 5) +% hash +% b as u32
+    }
+    hash
+}
+
+pub fn checksum_f64(v: f64) -> u32 {
+    checksum_str(format("{:.7}", v))
+}

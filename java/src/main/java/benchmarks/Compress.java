@@ -92,22 +92,19 @@ class BWTEncode extends Benchmark {
 
             int k = 1;
             while (k < n) {
+                Pair[] pairs = new Pair[n];
+                for (int i = 0; i < n; i++) {
+                    pairs[i] = new Pair(rank[i], rank[(i + k) % n]);
+                }
 
                 Integer[] saObj = new Integer[n];
                 for (int i = 0; i < n; i++) saObj[i] = sa[i];
 
-                final int[] rankCopy = rank.clone();
-                final int kFinal = k;
-
                 Arrays.sort(saObj, (a, b) -> {
-                    int ra = rankCopy[a];
-                    int rb = rankCopy[b];
-                    if (ra != rb) {
-                        return Integer.compare(ra, rb);
-                    }
-                    int rak = rankCopy[(a + kFinal) % n];
-                    int rbk = rankCopy[(b + kFinal) % n];
-                    return Integer.compare(rak, rbk);
+                    Pair pa = pairs[a];
+                    Pair pb = pairs[b];
+                    if (pa.first != pb.first) return Integer.compare(pa.first, pb.first);
+                    return Integer.compare(pa.second, pb.second);
                 });
 
                 for (int i = 0; i < n; i++) sa[i] = saObj[i];
@@ -117,9 +114,9 @@ class BWTEncode extends Benchmark {
                 for (int i = 1; i < n; i++) {
                     int prevIdx = sa[i - 1];
                     int currIdx = sa[i];
-                    newRank[currIdx] = newRank[prevIdx] +
-                                       (rank[prevIdx] != rank[currIdx] ||
-                                        rank[(prevIdx + k) % n] != rank[(currIdx + k) % n] ? 1 : 0);
+                    boolean same = pairs[prevIdx].first == pairs[currIdx].first &&
+                                   pairs[prevIdx].second == pairs[currIdx].second;
+                    newRank[currIdx] = newRank[prevIdx] + (same ? 0 : 1);
                 }
 
                 rank = newRank;
@@ -141,6 +138,16 @@ class BWTEncode extends Benchmark {
         }
 
         return new BWTResult(transformed, originalIdx);
+    }
+
+    private static final class Pair {
+        final int first;
+        final int second;
+
+        Pair(int first, int second) {
+            this.first = first;
+            this.second = second;
+        }
     }
 
     @Override
@@ -720,8 +727,10 @@ class ArithDecode extends Benchmark {
             long range = high - low + 1;
             long scaled = ((value - low + 1) * total - 1) / range;
 
-            int symbol = 0;
-            while (symbol < 255 && highTable[symbol] <= scaled) {
+            int symbol = Arrays.binarySearch(highTable, 0, 256, (int) scaled);
+            if (symbol < 0) {
+                symbol = ~symbol;
+            } else {
                 symbol++;
             }
 
@@ -883,7 +892,7 @@ class LZWDecode extends Benchmark {
         return "Compress::LZWDecode";
     }
 
-    private byte[] lzwDecode(LZWEncode.LZWResult encoded) {
+    private byte[] lzwDecode(LZWEncode.LZWResult encoded) throws IOException {
         if (encoded.data.length == 0) {
             return new byte[0];
         }
@@ -903,11 +912,7 @@ class LZWDecode extends Benchmark {
         pos += 2;
 
         String oldStr = dict.get(oldCode);
-        try {
-            result.write(oldStr.getBytes(StandardCharsets.ISO_8859_1));
-        } catch (IOException e) {
-            throw new RuntimeException("Unexpected IOException", e);
-        }
+        result.write(oldStr.getBytes(StandardCharsets.ISO_8859_1));
 
         int nextCode = 256;
 
@@ -924,14 +929,10 @@ class LZWDecode extends Benchmark {
             } else if (newCode == nextCode) {
                 newStr = oldStr + oldStr.substring(0, 1);
             } else {
-                throw new RuntimeException("Error decode");
+                return new byte[0];
             }
 
-            try {
-                result.write(newStr.getBytes(StandardCharsets.ISO_8859_1));
-            } catch (IOException e) {
-                throw new RuntimeException("Unexpected IOException", e);
-            }
+            result.write(newStr.getBytes(StandardCharsets.ISO_8859_1));
 
             dict.add(oldStr + newStr.substring(0, 1));
             nextCode++;
@@ -955,8 +956,12 @@ class LZWDecode extends Benchmark {
 
     @Override
     public void run(int iterationId) {
-        decoded = lzwDecode(encoded);
-        resultVal += decoded.length;
+        try {
+            decoded = lzwDecode(encoded);
+            resultVal += decoded.length;
+        } catch (IOException e) {
+            throw new RuntimeException("Unexpected IOException", e);
+        }
     }
 
     @Override

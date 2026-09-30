@@ -33,9 +33,16 @@ MazePathNode :: struct {
 	parent: int,
 }
 
-MazeAStarItem :: struct {
+MazeAStarEntry :: struct {
 	priority: int,
 	vertex:   int,
+}
+
+maze_astar_entry_less :: proc(a, b: MazeAStarEntry) -> bool {
+	if a.priority != b.priority {
+		return a.priority < b.priority
+	}
+	return a.vertex < b.vertex
 }
 
 maze_cell_init :: proc(x, y: int) -> MazeCell {
@@ -128,7 +135,7 @@ maze_reset :: proc(maze: ^Maze) {
 }
 
 maze_dig :: proc(maze: ^Maze, start_cell: ^MazeCell) {
-	stack := make([dynamic]^MazeCell)
+	stack := make([dynamic]^MazeCell, 0, maze.width * maze.height)
 	defer delete(stack)
 
 	append(&stack, start_cell)
@@ -143,41 +150,36 @@ maze_dig :: proc(maze: ^Maze, start_cell: ^MazeCell) {
 			}
 		}
 
-		if walkable == 1 {
-			cell.kind = .Space
-			for n in cell.neighbors {
-				if n.kind == .Wall {
-					append(&stack, n)
-				}
+		if walkable != 1 {
+			continue
+		}
+
+		cell.kind = .Space
+		for n in cell.neighbors {
+			if n.kind == .Wall {
+				append(&stack, n)
 			}
 		}
 	}
 }
 
-maze_ensure_open_finish :: proc(maze: ^Maze, start_cell: ^MazeCell) {
-	stack := make([dynamic]^MazeCell)
-	defer delete(stack)
+maze_ensure_open_finish :: proc(maze: ^Maze, cell: ^MazeCell) {
+	cell.kind = .Space
 
-	append(&stack, start_cell)
-
-	for len(stack) > 0 {
-		cell := pop(&stack)
-
-		cell.kind = .Space
-
-		walkable := 0
-		for n in cell.neighbors {
-			if maze_is_walkable(n.kind) {
-				walkable += 1
-			}
+	walkable := 0
+	for n in cell.neighbors {
+		if maze_is_walkable(n.kind) {
+			walkable += 1
 		}
+	}
 
-		if walkable <= 1 {
-			for n in cell.neighbors {
-				if n.kind == .Wall {
-					append(&stack, n)
-				}
-			}
+	if walkable > 1 {
+		return
+	}
+
+	for n in cell.neighbors {
+		if n.kind == .Wall {
+			maze_ensure_open_finish(maze, n)
 		}
 	}
 }
@@ -247,9 +249,6 @@ MazeGenerator :: struct {
 
 maze_generator_prepare :: proc(bench: ^Benchmark) {
 	mg := cast(^MazeGenerator)bench
-	mg.width = int(config_i64(mg.name, "w"))
-	mg.height = int(config_i64(mg.name, "h"))
-	mg.maze = maze_init(mg.width, mg.height)
 	mg.result_val = 0
 }
 
@@ -278,6 +277,12 @@ create_maze_generator :: proc() -> ^Benchmark {
 	bench.vtable.run = maze_generator_run
 	bench.vtable.checksum = maze_generator_checksum
 	bench.vtable.cleanup = maze_generator_cleanup
+
+	bench.width = int(config_i64(bench.name, "w"))
+	bench.height = int(config_i64(bench.name, "h"))
+	bench.maze = maze_init(bench.width, bench.height)
+	bench.result_val = 0
+
 	return cast(^Benchmark)bench
 }
 
@@ -291,9 +296,6 @@ MazeBFS :: struct {
 
 maze_bfs_prepare :: proc(bench: ^Benchmark) {
 	bfs := cast(^MazeBFS)bench
-	bfs.width = int(config_i64(bfs.name, "w"))
-	bfs.height = int(config_i64(bfs.name, "h"))
-	bfs.maze = maze_init(bfs.width, bfs.height)
 	maze_generate(&bfs.maze)
 	bfs.result_val = 0
 	bfs.path = {}
@@ -388,18 +390,14 @@ create_maze_bfs :: proc() -> ^Benchmark {
 	bench.vtable.run = maze_bfs_run
 	bench.vtable.checksum = maze_bfs_checksum
 	bench.vtable.cleanup = maze_bfs_cleanup
+
+	bench.width = int(config_i64(bench.name, "w"))
+	bench.height = int(config_i64(bench.name, "h"))
+	bench.maze = maze_init(bench.width, bench.height)
+	bench.result_val = 0
+	bench.path = {}
+
 	return cast(^Benchmark)bench
-}
-
-maze_astar_item_less :: proc(a, b: MazeAStarItem) -> bool {
-	if a.priority != b.priority {
-		return a.priority < b.priority
-	}
-	return a.vertex < b.vertex
-}
-
-maze_astar_item_swap :: proc(arr: []MazeAStarItem, i, j: int) {
-	arr[i], arr[j] = arr[j], arr[i]
 }
 
 MazeAStar :: struct {
@@ -412,9 +410,6 @@ MazeAStar :: struct {
 
 maze_astar_prepare :: proc(bench: ^Benchmark) {
 	astar := cast(^MazeAStar)bench
-	astar.width = int(config_i64(astar.name, "w"))
-	astar.height = int(config_i64(astar.name, "h"))
-	astar.maze = maze_init(astar.width, astar.height)
 	maze_generate(&astar.maze)
 	astar.result_val = 0
 	astar.path = {}
@@ -457,23 +452,22 @@ maze_astar_search :: proc(maze: ^Maze, start, target: ^MazeCell) -> [dynamic]^Ma
 	start_idx := maze_astar_idx(start.y, start.x, width)
 	target_idx := maze_astar_idx(target.y, target.x, width)
 
-	pq: priority_queue.Priority_Queue(MazeAStarItem)
-	priority_queue.init(&pq, maze_astar_item_less, maze_astar_item_swap)
+	pq: priority_queue.Priority_Queue(MazeAStarEntry)
+	priority_queue.init(
+		pq = &pq,
+		less = maze_astar_entry_less,
+		swap = priority_queue.default_swap_proc(MazeAStarEntry),
+	)
 	defer priority_queue.destroy(&pq)
-
-	in_open := make([]bool, size)
-	defer delete(in_open)
 
 	g_score[start_idx] = 0
 	f_start := maze_astar_heuristic(start, target)
-	priority_queue.push(&pq, MazeAStarItem{priority = f_start, vertex = start_idx})
+	priority_queue.push(&pq, MazeAStarEntry{priority = f_start, vertex = start_idx})
 	best_f[start_idx] = f_start
-	in_open[start_idx] = true
 
 	for priority_queue.len(pq) > 0 {
-		current := priority_queue.pop(&pq)
-		current_idx := current.vertex
-		in_open[current_idx] = false
+		entry := priority_queue.pop(&pq)
+		current_idx := entry.vertex
 
 		if current_idx == target_idx {
 			cur := current_idx
@@ -508,9 +502,8 @@ maze_astar_search :: proc(maze: ^Maze, start, target: ^MazeCell) -> [dynamic]^Ma
 					best_f[neighbor_idx] = f_new
 					priority_queue.push(
 						&pq,
-						MazeAStarItem{priority = f_new, vertex = neighbor_idx},
+						MazeAStarEntry{priority = f_new, vertex = neighbor_idx},
 					)
-					in_open[neighbor_idx] = true
 				}
 			}
 		}
@@ -553,5 +546,12 @@ create_maze_astar :: proc() -> ^Benchmark {
 	bench.vtable.run = maze_astar_run
 	bench.vtable.checksum = maze_astar_checksum
 	bench.vtable.cleanup = maze_astar_cleanup
+
+	bench.width = int(config_i64(bench.name, "w"))
+	bench.height = int(config_i64(bench.name, "h"))
+	bench.maze = maze_init(bench.width, bench.height)
+	bench.result_val = 0
+	bench.path = {}
+
 	return cast(^Benchmark)bench
 }

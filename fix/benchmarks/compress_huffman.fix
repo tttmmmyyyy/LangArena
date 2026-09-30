@@ -23,7 +23,7 @@ type Node = box union { leaf : U8, branch : (Node, Node) };
 // byte value occurs in it, which is what the code tree is built from.
 type Coded = struct { bytes : Array U8, bits : I64, frequencies : Array I64 };
 
-// Puts a node into a list ordered by frequency, behind the nodes of the same frequency.
+// Puts a node into a list ordered by frequency, ahead of the nodes of the same frequency.
 //
 // # Parameters
 // * `item` - The frequency and the node to put in.
@@ -31,7 +31,7 @@ type Coded = struct { bytes : Array U8, bits : I64, frequencies : Array I64 };
 _insert_ordered : (I64, Node) -> Array (I64, Node) -> Array (I64, Node);
 _insert_ordered = |item, nodes| (
     let at = loop(0, |i|
-        if i == nodes.@size || nodes.@(i).@0 > item.@0 { break $ i };
+        if i == nodes.@size || nodes.@(i).@0 >= item.@0 { break $ i };
         continue $ i + 1
     );
     from_map(nodes.@size + 1, |i|

@@ -55,10 +55,6 @@ module MazeTypes =
         member this.UpdateNeighbors() =
             for y = 0 to h - 1 do
                 for x = 0 to w - 1 do
-                    cells.[y, x].Neighbors.Clear()
-
-            for y = 0 to h - 1 do
-                for x = 0 to w - 1 do
                     let cell = cells.[y, x]
 
                     if x > 0 && y > 0 && x < w - 1 && y < h - 1 then
@@ -87,7 +83,7 @@ module MazeTypes =
             finish.Kind <- CellKind.Finish
 
         member this.Dig(startCell: Cell) =
-            let stack = Stack<Cell>()
+            let stack = Stack<Cell>(w * h)
             stack.Push(startCell)
 
             while stack.Count > 0 do
@@ -106,25 +102,19 @@ module MazeTypes =
                         if cell.Neighbors.[i].Kind = CellKind.Wall then
                             stack.Push(cell.Neighbors.[i])
 
-        member this.EnsureOpenFinish(startCell: Cell) =
-            let stack = Stack<Cell>()
-            stack.Push(startCell)
+        member this.EnsureOpenFinish(cell: Cell) =
+            cell.Kind <- CellKind.Space
 
-            while stack.Count > 0 do
-                let cell = stack.Pop()
+            let mutable walkable = 0
 
-                cell.Kind <- CellKind.Space
+            for i = 0 to cell.Neighbors.Count - 1 do
+                if cell.Neighbors.[i].IsWalkable() then
+                    walkable <- walkable + 1
 
-                let mutable walkable = 0
-
+            if walkable <= 1 then
                 for i = 0 to cell.Neighbors.Count - 1 do
-                    if cell.Neighbors.[i].IsWalkable() then
-                        walkable <- walkable + 1
-
-                if walkable <= 1 then
-                    for i = 0 to cell.Neighbors.Count - 1 do
-                        if cell.Neighbors.[i].Kind = CellKind.Wall then
-                            stack.Push(cell.Neighbors.[i])
+                    if cell.Neighbors.[i].Kind = CellKind.Wall then
+                        this.EnsureOpenFinish(cell.Neighbors.[i])
 
         member this.Generate() =
             for n in start.Neighbors do
@@ -167,10 +157,6 @@ module MazeTypes =
 
             printfn ""
 
-type BfsPathNode(cell: MazeTypes.Cell, parent: int) =
-    member _.Cell = cell
-    member _.Parent = parent
-
 type MazeGenerator() =
     inherit Benchmark()
 
@@ -182,8 +168,7 @@ type MazeGenerator() =
     override this.Prepare() =
         width <- int (this.ConfigVal("w"))
         height <- int (this.ConfigVal("h"))
-        let newMaze = MazeTypes.Maze(width, height)
-        maze <- Some newMaze
+        maze <- Some(MazeTypes.Maze(width, height))
         resultVal <- 0u
 
     override this.Run(_: int64) =
@@ -200,6 +185,10 @@ type MazeGenerator() =
         | None -> 0u
 
     override this.Name = "Maze::Generator"
+
+type BfsPathNode(cell: MazeTypes.Cell, parent: int) =
+    member _.Cell = cell
+    member _.Parent = parent
 
 type MazeBFS() =
     inherit Benchmark()
@@ -223,7 +212,6 @@ type MazeBFS() =
         if start = target then
             [ start ]
         else
-
             let queue = Queue<int>()
             let visited = Array2D.zeroCreate<bool> height width
             let pathNodes = ResizeArray<BfsPathNode>()
@@ -250,7 +238,7 @@ type MazeBFS() =
                             cur <- pathNodes.[cur].Parent
 
                         result <- res |> List.rev
-                    else if neighbor.IsWalkable() && not visited.[neighbor.Y, neighbor.X] then
+                    elif neighbor.IsWalkable() && not visited.[neighbor.Y, neighbor.X] then
                         visited.[neighbor.Y, neighbor.X] <- true
                         pathNodes.Add(BfsPathNode(neighbor, pathId))
                         queue.Enqueue(pathNodes.Count - 1)
@@ -300,7 +288,6 @@ type MazeAStar() =
         if start = target then
             [ start ]
         else
-
             let size = width * height
             let cameFrom = Array.create size -1
             let gScore = Array.create size Int32.MaxValue
@@ -310,62 +297,56 @@ type MazeAStar() =
             let targetIdx = this.Idx(target.Y, target.X)
 
             let openSet = PriorityQueue<int, int>()
-            let inOpen = Array.create size false
 
             let fStart = this.Heuristic(start, target)
             openSet.Enqueue(startIdx, fStart)
             bestF.[startIdx] <- fStart
             gScore.[startIdx] <- 0
-            inOpen.[startIdx] <- true
 
             let mutable result = []
 
             while openSet.Count > 0 && result.IsEmpty do
-                let ok, currentIdx, _ = openSet.TryDequeue()
+                let currentIdx = openSet.Dequeue()
 
-                if ok then
-                    inOpen.[currentIdx] <- false
+                if currentIdx = targetIdx then
+                    let mutable cur = currentIdx
 
-                    if currentIdx = targetIdx then
-                        let mutable cur = currentIdx
-
-                        while cur <> -1 do
-                            let y = cur / width
-                            let x = cur % width
-
-                            match maze with
-                            | Some m -> result <- m.Cells.[y, x] :: result
-                            | None -> ()
-
-                            cur <- cameFrom.[cur]
-
-                        result <- result |> List.rev
-                    else
-                        let currentY = currentIdx / width
-                        let currentX = currentIdx % width
+                    while cur <> -1 do
+                        let y = cur / width
+                        let x = cur % width
 
                         match maze with
-                        | Some m ->
-                            let currentCell = m.Cells.[currentY, currentX]
-                            let currentG = gScore.[currentIdx]
-
-                            for i = 0 to currentCell.Neighbors.Count - 1 do
-                                let neighbor = currentCell.Neighbors.[i]
-
-                                if neighbor.IsWalkable() then
-                                    let neighborIdx = this.Idx(neighbor.Y, neighbor.X)
-                                    let tentativeG = currentG + 1
-
-                                    if tentativeG < gScore.[neighborIdx] then
-                                        cameFrom.[neighborIdx] <- currentIdx
-                                        gScore.[neighborIdx] <- tentativeG
-                                        let fNew = tentativeG + this.Heuristic(neighbor, target)
-
-                                        if fNew < bestF.[neighborIdx] then
-                                            bestF.[neighborIdx] <- fNew
-                                            openSet.Enqueue(neighborIdx, fNew)
-                                            inOpen.[neighborIdx] <- true
+                        | Some m -> result <- m.Cells.[y, x] :: result
                         | None -> ()
+
+                        cur <- cameFrom.[cur]
+
+                    result <- result |> List.rev
+                else
+                    let currentY = currentIdx / width
+                    let currentX = currentIdx % width
+
+                    match maze with
+                    | Some m ->
+                        let currentCell = m.Cells.[currentY, currentX]
+                        let currentG = gScore.[currentIdx]
+
+                        for i = 0 to currentCell.Neighbors.Count - 1 do
+                            let neighbor = currentCell.Neighbors.[i]
+
+                            if neighbor.IsWalkable() then
+                                let neighborIdx = this.Idx(neighbor.Y, neighbor.X)
+                                let tentativeG = currentG + 1
+
+                                if tentativeG < gScore.[neighborIdx] then
+                                    cameFrom.[neighborIdx] <- currentIdx
+                                    gScore.[neighborIdx] <- tentativeG
+                                    let fNew = tentativeG + this.Heuristic(neighbor, target)
+
+                                    if fNew < bestF.[neighborIdx] then
+                                        bestF.[neighborIdx] <- fNew
+                                        openSet.Enqueue(neighborIdx, fNew)
+                    | None -> ()
 
             result
 

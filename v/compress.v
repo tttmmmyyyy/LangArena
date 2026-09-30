@@ -314,11 +314,11 @@ pub fn new_huffencode() &benchmark.IBenchmark {
 }
 
 fn build_huffman_tree(frequencies []int) &HuffmanNode {
-	mut heap := []&HuffmanNode{}
+	mut nodes := []&HuffmanNode{}
 
 	for i in 0 .. 256 {
 		if frequencies[i] > 0 {
-			heap << &HuffmanNode{
+			nodes << &HuffmanNode{
 				frequency: frequencies[i]
 				byte_val:  u8(i)
 				is_leaf:   true
@@ -326,16 +326,10 @@ fn build_huffman_tree(frequencies []int) &HuffmanNode {
 		}
 	}
 
-	for i in 0 .. heap.len - 1 {
-		for j in i + 1 .. heap.len {
-			if heap[i].frequency > heap[j].frequency {
-				heap[i], heap[j] = heap[j], heap[i]
-			}
-		}
-	}
+	nodes.sort(a.frequency < b.frequency)
 
-	if heap.len == 1 {
-		node := heap[0]
+	if nodes.len == 1 {
+		node := nodes[0]
 		return &HuffmanNode{
 			frequency: node.frequency
 			is_leaf:   false
@@ -347,11 +341,11 @@ fn build_huffman_tree(frequencies []int) &HuffmanNode {
 		}
 	}
 
-	for heap.len > 1 {
-		left := heap[0]
-		right := heap[1]
-		heap.delete(0)
-		heap.delete(0)
+	for nodes.len > 1 {
+		left := nodes[0]
+		right := nodes[1]
+		nodes.delete(0)
+		nodes.delete(0)
 
 		parent := &HuffmanNode{
 			frequency: left.frequency + right.frequency
@@ -361,19 +355,19 @@ fn build_huffman_tree(frequencies []int) &HuffmanNode {
 		}
 
 		mut inserted := false
-		for i in 0 .. heap.len {
-			if parent.frequency < heap[i].frequency {
-				heap.insert(i, parent)
+		for i in 0 .. nodes.len {
+			if parent.frequency < nodes[i].frequency {
+				nodes.insert(i, parent)
 				inserted = true
 				break
 			}
 		}
 		if !inserted {
-			heap << parent
+			nodes << parent
 		}
 	}
 
-	return heap[0]
+	return nodes[0]
 }
 
 fn build_huffman_codes(node &HuffmanNode, code u32, length int, mut huffman_codes HuffmanCodes) {
@@ -796,11 +790,17 @@ fn arith_decode(encoded ArithEncodedResult) []u8 {
 		range_val := high - low + 1
 		scaled := ((value - low + 1) * u64(total) - 1) / range_val
 
-		mut symbol := 0
-		for symbol < 255 && u64(high_table[symbol]) <= scaled {
-			symbol++
+		mut left := 0
+		mut right := 256
+		for left < right {
+			mid := (left + right) >> 1
+			if u64(high_table[mid]) <= scaled {
+				left = mid + 1
+			} else {
+				right = mid
+			}
 		}
-
+		symbol := left
 		result[j] = u8(symbol)
 
 		high = low + (range_val * u64(high_table[symbol]) / u64(total)) - 1
@@ -1013,7 +1013,7 @@ fn lzw_decode(encoded LZWResult) []u8 {
 			s[0] = first_char
 			new_str = old_str + unsafe { s.bytestr() }
 		} else {
-			panic('LZW decode error: invalid code')
+			return []u8{}
 		}
 
 		result << new_str.bytes()

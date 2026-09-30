@@ -22,6 +22,7 @@ from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
 from enum import Enum
+from bisect import bisect_right
 from io import StringIO
 from pathlib import Path
 from typing import (Any, Callable, Dict, List, NamedTuple, Optional, Union,
@@ -377,8 +378,9 @@ class BinarytreesArena(Benchmark):
                 shift = 1 << (depth - 1)
                 left_idx = self.build(item - shift, depth - 1)
                 right_idx = self.build(item + shift, depth - 1)
-                self.nodes[idx].left = left_idx
-                self.nodes[idx].right = right_idx
+                node = self.nodes[idx]
+                node.left = left_idx
+                node.right = right_idx
 
             return idx
 
@@ -779,6 +781,7 @@ class Mandelbrot(Benchmark):
         byte_acc = 0
 
         for y in range(self.h):
+            ci = (2.0 * y / self.h - 1.0)
             for x in range(self.w):
                 zr = 0.0
                 zi = 0.0
@@ -786,7 +789,6 @@ class Mandelbrot(Benchmark):
                 ti = 0.0
 
                 cr = (2.0 * x / self.w - 1.5)
-                ci = (2.0 * y / self.h - 1.0)
 
                 i = 0
                 while i < self.ITER and (tr + ti) <= self.LIMIT * self.LIMIT:
@@ -2017,42 +2019,34 @@ class GraphPathAStar(GraphPathBenchmark):
             return 0
 
         vertices = self._graph.get_vertices()
-        g_score = [0x7FFFFFFF] * vertices
-        f_score = [0x7FFFFFFF] * vertices
-        closed = [0] * vertices
+        INF = 0x7FFFFFFF
+
+        g_score = [INF] * vertices
+        best_f = [INF] * vertices
 
         g_score[start] = 0
-        f_score[start] = self._heuristic(start, target)
+        f_start = self._heuristic(start, target)
+        best_f[start] = f_start
 
         open_set = []
-        in_open_set = [0] * vertices
-
-        heapq.heappush(open_set, (f_score[start], start))
-        in_open_set[start] = 1
+        heapq.heappush(open_set, (f_start, start))
 
         while open_set:
             _, current = heapq.heappop(open_set)
-            in_open_set[current] = 0
 
             if current == target:
                 return g_score[current]
 
-            closed[current] = 1
-
             for neighbor in self._graph.get_adjacency()[current]:
-                if closed[neighbor]:
-                    continue
-
                 tentative_g = g_score[current] + 1
 
                 if tentative_g < g_score[neighbor]:
                     g_score[neighbor] = tentative_g
-                    f = tentative_g + self._heuristic(neighbor, target)
-                    f_score[neighbor] = f
+                    f_new = tentative_g + self._heuristic(neighbor, target)
 
-                    if not in_open_set[neighbor]:
-                        heapq.heappush(open_set, (f, neighbor))
-                        in_open_set[neighbor] = 1
+                    if f_new < best_f[neighbor]:
+                        best_f[neighbor] = f_new
+                        heapq.heappush(open_set, (f_new, neighbor))
 
         return -1
 
@@ -2288,6 +2282,27 @@ class CacheSimulation(Benchmark):
         return "Etc::CacheSimulation"
 
 
+CHAR_EOF = 0
+CHAR_PLUS = ord('+')
+CHAR_MINUS = ord('-')
+CHAR_STAR = ord('*')
+CHAR_SLASH = ord('/')
+CHAR_PERCENT = ord('%')
+CHAR_LPAREN = ord('(')
+CHAR_RPAREN = ord(')')
+CHAR_EQUALS = ord('=')
+CHAR_ZERO = ord('0')
+CHAR_NINE = ord('9')
+CHAR_A_LOWER = ord('a')
+CHAR_Z_LOWER = ord('z')
+CHAR_A_UPPER = ord('A')
+CHAR_Z_UPPER = ord('Z')
+CHAR_SPACE = ord(' ')
+CHAR_TAB = ord('\t')
+CHAR_NEWLINE = ord('\n')
+CHAR_CR = ord('\r')
+
+
 class Node2(ABC):
     pass
 
@@ -2323,30 +2338,34 @@ class Parser2:
 
     def __init__(self, input_str: str):
         self.input = input_str
+        self.bytes = input_str.encode('ascii')
         self.pos = 0
-        self.chars = list(input_str)
-        self.current_char = self.chars[0] if self.chars else '\0'
+        self.len = len(self.bytes)
+        self.current_byte = self.bytes[0] if self.len > 0 else CHAR_EOF
         self.expressions: List[Node2] = []
 
     def parse(self):
-        while self.pos < len(self.chars):
+        while self.current_byte != CHAR_EOF:
             self._skip_whitespace()
-            if self.pos >= len(self.chars):
+            if self.current_byte == CHAR_EOF:
                 break
 
             expr = self._parse_expression()
             self.expressions.append(expr)
 
+            self._skip_whitespace()
+            while self.current_byte == CHAR_NEWLINE:
+                self._advance()
+                self._skip_whitespace()
+
     def _parse_expression(self) -> Node2:
         node = self._parse_term()
 
-        while self.pos < len(self.chars):
+        while True:
             self._skip_whitespace()
-            if self.pos >= len(self.chars):
-                break
 
-            if self.current_char in '+-':
-                op = self.current_char
+            if self.current_byte == CHAR_PLUS or self.current_byte == CHAR_MINUS:
+                op = chr(self.current_byte)
                 self._advance()
                 right = self._parse_term()
                 node = BinaryOpNode(op, node, right)
@@ -2358,13 +2377,13 @@ class Parser2:
     def _parse_term(self) -> Node2:
         node = self._parse_factor()
 
-        while self.pos < len(self.chars):
+        while True:
             self._skip_whitespace()
-            if self.pos >= len(self.chars):
-                break
 
-            if self.current_char in '*/%':
-                op = self.current_char
+            if (self.current_byte == CHAR_STAR or
+                    self.current_byte == CHAR_SLASH or
+                    self.current_byte == CHAR_PERCENT):
+                op = chr(self.current_byte)
                 self._advance()
                 right = self._parse_factor()
                 node = BinaryOpNode(op, node, right)
@@ -2375,44 +2394,40 @@ class Parser2:
 
     def _parse_factor(self) -> Node2:
         self._skip_whitespace()
-        if self.pos >= len(self.chars):
-            return NumberNode(0)
 
-        char = self.current_char
-
-        if self._is_digit(char):
+        if self._is_digit(self.current_byte):
             return self._parse_number()
-        elif self._is_letter(char):
+        elif self._is_letter(self.current_byte):
             return self._parse_variable()
-        elif char == '(':
+        elif self.current_byte == CHAR_LPAREN:
             self._advance()
             node = self._parse_expression()
             self._skip_whitespace()
-            if self.current_char == ')':
+            if self.current_byte == CHAR_RPAREN:
                 self._advance()
             return node
         else:
+            self._advance()
             return NumberNode(0)
 
     def _parse_number(self) -> NumberNode:
         value = 0
-        while self.pos < len(self.chars) and self._is_digit(self.current_char):
-            digit = ord(self.current_char) - ord('0')
+        while self._is_digit(self.current_byte):
+            digit = self.current_byte - CHAR_ZERO
             value = value * 10 + digit
             self._advance()
         return NumberNode(value)
 
     def _parse_variable(self) -> Node2:
         start = self.pos
-        while (self.pos < len(self.chars) and
-               (self._is_letter(self.current_char) or
-                self._is_digit(self.current_char))):
+        while (self._is_letter(self.current_byte) or
+               self._is_digit(self.current_byte)):
             self._advance()
 
         var_name = self.input[start:self.pos]
 
         self._skip_whitespace()
-        if self.pos < len(self.chars) and self.current_char == '=':
+        if self.current_byte == CHAR_EQUALS:
             self._advance()
             expr = self._parse_expression()
             return AssignmentNode(var_name, expr)
@@ -2421,27 +2436,28 @@ class Parser2:
 
     def _advance(self):
         self.pos += 1
-        if self.pos >= len(self.chars):
-            self.current_char = '\0'
+        if self.pos >= self.len:
+            self.current_byte = CHAR_EOF
         else:
-            self.current_char = self.chars[self.pos]
+            self.current_byte = self.bytes[self.pos]
 
     def _skip_whitespace(self):
-        while self.pos < len(self.chars) and self._is_whitespace(
-                self.current_char):
+        while self._is_whitespace(self.current_byte):
             self._advance()
 
     @staticmethod
-    def _is_digit(ch: str) -> bool:
-        return '0' <= ch <= '9'
+    def _is_digit(byte: int) -> bool:
+        return CHAR_ZERO <= byte <= CHAR_NINE
 
     @staticmethod
-    def _is_letter(ch: str) -> bool:
-        return ('a' <= ch <= 'z') or ('A' <= ch <= 'Z')
+    def _is_letter(byte: int) -> bool:
+        return (CHAR_A_LOWER <= byte <= CHAR_Z_LOWER) or (CHAR_A_UPPER <= byte
+                                                          <= CHAR_Z_UPPER)
 
     @staticmethod
-    def _is_whitespace(ch: str) -> bool:
-        return ch in ' \t\n\r'
+    def _is_whitespace(byte: int) -> bool:
+        return (byte == CHAR_SPACE or byte == CHAR_TAB or
+                byte == CHAR_NEWLINE or byte == CHAR_CR)
 
 
 class CalculatorAst(Benchmark):
@@ -2810,7 +2826,6 @@ class Maze:
         for y in range(self.height):
             for x in range(self.width):
                 cell = self.cells[y][x]
-                cell.neighbors.clear()
 
                 if 0 < x < self.width - 1 and 0 < y < self.height - 1:
                     cell.add_neighbor(self.cells[y - 1][x])
@@ -2835,10 +2850,16 @@ class Maze:
         self.finish.kind = CellKind.FINISH
 
     def _dig(self, start_cell: Cell) -> None:
-        stack = [start_cell]
 
-        while stack:
-            cell = stack.pop()
+        capacity = self.width * self.height
+        stack: List[Optional[Cell]] = [None] * capacity
+        size = 0
+        stack[size] = start_cell
+        size += 1
+
+        while size > 0:
+            size -= 1
+            cell = stack[size]
 
             walkable = sum(1 for n in cell.neighbors if n.kind.is_walkable())
 
@@ -2846,23 +2867,19 @@ class Maze:
                 cell.kind = CellKind.SPACE
                 for n in cell.neighbors:
                     if n.kind == CellKind.WALL:
-                        stack.append(n)
+                        stack[size] = n
+                        size += 1
 
-    def _ensure_open_finish(self, start_cell: Cell) -> None:
-        stack = [start_cell]
+    def _ensure_open_finish(self, cell: Cell) -> None:
+        cell.kind = CellKind.SPACE
 
-        while stack:
-            cell = stack.pop()
+        walkable = sum(1 for n in cell.neighbors if n.kind.is_walkable())
+        if walkable > 1:
+            return
 
-            cell.kind = CellKind.SPACE
-
-            walkable = sum(1 for n in cell.neighbors if n.kind.is_walkable())
-            if walkable > 1:
-                continue
-
-            for n in cell.neighbors:
-                if n.kind == CellKind.WALL:
-                    stack.append(n)
+        for n in cell.neighbors:
+            if n.kind == CellKind.WALL:
+                self._ensure_open_finish(n)
 
     def generate(self) -> None:
         for n in self.start.neighbors:
@@ -2913,27 +2930,20 @@ class MazeGenerator(Benchmark):
     def __init__(self):
         super().__init__()
         self.result_val = 0
-        self.width = 0
-        self.height = 0
-        self.maze: Optional[Maze] = None
+        self.width = Helper.config_i64("Maze::Generator", "w")
+        self.height = Helper.config_i64("Maze::Generator", "h")
+        self.maze = Maze(self.width, self.height)
 
     def prepare(self) -> None:
-        self.width = Helper.config_i64(self.name(), "w")
-        self.height = Helper.config_i64(self.name(), "h")
-        self.maze = Maze(self.width, self.height)
         self.result_val = 0
 
     def run_benchmark(self, iteration_id: int) -> None:
-        if self.maze is None:
-            return
         self.maze.reset()
         self.maze.generate()
         self.result_val = (self.result_val +
                            self.maze.middle_cell().kind.value) & 0xFFFFFFFF
 
     def checksum(self) -> int:
-        if self.maze is None:
-            return 0
         return (self.result_val + self.maze.checksum()) & 0xFFFFFFFF
 
     def name(self) -> str:
@@ -2952,15 +2962,12 @@ class MazeBFS(Benchmark):
     def __init__(self):
         super().__init__()
         self.result_val = 0
-        self.width = 0
-        self.height = 0
-        self.maze: Optional[Maze] = None
+        self.width = Helper.config_i64("Maze::BFS", "w")
+        self.height = Helper.config_i64("Maze::BFS", "h")
+        self.maze = Maze(self.width, self.height)
         self.path: List[Cell] = []
 
     def prepare(self) -> None:
-        self.width = Helper.config_i64(self.name(), "w")
-        self.height = Helper.config_i64(self.name(), "h")
-        self.maze = Maze(self.width, self.height)
         self.maze.generate()
         self.result_val = 0
         self.path = []
@@ -3004,8 +3011,6 @@ class MazeBFS(Benchmark):
         return (cell.x * cell.y) & 0xFFFFFFFF
 
     def run_benchmark(self, iteration_id: int) -> None:
-        if self.maze is None:
-            return
         self.path = self._bfs(self.maze.start, self.maze.finish)
         self.result_val = (self.result_val + len(self.path)) & 0xFFFFFFFF
 
@@ -3034,15 +3039,12 @@ class MazeAStar(Benchmark):
     def __init__(self):
         super().__init__()
         self.result_val = 0
-        self.width = 0
-        self.height = 0
-        self.maze: Optional[Maze] = None
+        self.width = Helper.config_i64("Maze::AStar", "w")
+        self.height = Helper.config_i64("Maze::AStar", "h")
+        self.maze = Maze(self.width, self.height)
         self.path: List[Cell] = []
 
     def prepare(self) -> None:
-        self.width = Helper.config_i64(self.name(), "w")
-        self.height = Helper.config_i64(self.name(), "h")
-        self.maze = Maze(self.width, self.height)
         self.maze.generate()
         self.result_val = 0
         self.path = []
@@ -3068,18 +3070,15 @@ class MazeAStar(Benchmark):
         target_idx = self._idx(target.y, target.x, self.width)
 
         open_set = []
-        in_open = [False] * size
 
         g_score[start_idx] = 0
         f_start = self._heuristic(start, target)
         heapq.heappush(open_set, MazeAStar.Item(f_start, start_idx))
         best_f[start_idx] = f_start
-        in_open[start_idx] = True
 
         while open_set:
             current = heapq.heappop(open_set)
             current_idx = current.vertex
-            in_open[current_idx] = False
 
             if current_idx == target_idx:
                 result = []
@@ -3112,7 +3111,6 @@ class MazeAStar(Benchmark):
                         best_f[neighbor_idx] = f_new
                         heapq.heappush(open_set,
                                        MazeAStar.Item(f_new, neighbor_idx))
-                        in_open[neighbor_idx] = True
 
         return []
 
@@ -3123,8 +3121,6 @@ class MazeAStar(Benchmark):
         return (cell.x * cell.y) & 0xFFFFFFFF
 
     def run_benchmark(self, iteration_id: int) -> None:
-        if self.maze is None:
-            return
         self.path = self._astar(self.maze.start, self.maze.finish)
         self.result_val = (self.result_val + len(self.path)) & 0xFFFFFFFF
 
@@ -3214,8 +3210,9 @@ class BWTEncode(Benchmark):
 
             k = 1
             while k < n:
+                pairs = [(rank[i], rank[(i + k) % n]) for i in range(n)]
 
-                sa.sort(key=lambda i: (rank[i], rank[(i + k) % n]))
+                sa.sort(key=lambda i: pairs[i])
 
                 new_rank = [0] * n
                 new_rank[sa[0]] = 0
@@ -3223,9 +3220,7 @@ class BWTEncode(Benchmark):
                     prev_idx = sa[i - 1]
                     curr_idx = sa[i]
                     new_rank[curr_idx] = new_rank[prev_idx] + (
-                        1 if rank[prev_idx] != rank[curr_idx] or
-                        rank[(prev_idx + k) % n] != rank[(curr_idx + k) % n]
-                        else 0)
+                        0 if pairs[prev_idx] == pairs[curr_idx] else 1)
 
                 rank = new_rank
                 k *= 2
@@ -3371,30 +3366,35 @@ class HuffEncode(Benchmark):
 
     @staticmethod
     def _build_huffman_tree(frequencies: List[int]) -> HuffmanNode:
-        heap = []
+        nodes = []
         for i, freq in enumerate(frequencies):
             if freq > 0:
-                heapq.heappush(heap, (freq, i, HuffmanNode(freq, i, True)))
+                nodes.append(HuffmanNode(freq, i, True))
 
-        if len(heap) == 1:
-            _, _, node = heapq.heappop(heap)
+        nodes.sort(key=lambda node: node.frequency)
+
+        if len(nodes) == 1:
+            node = nodes[0]
             root = HuffmanNode(node.frequency, 0, False)
             root.left = node
             root.right = HuffmanNode(0, 0, True)
             return root
 
-        while len(heap) > 1:
-            _, _, left = heapq.heappop(heap)
-            _, _, right = heapq.heappop(heap)
+        while len(nodes) > 1:
+            left = nodes.pop(0)
+            right = nodes.pop(0)
 
             parent = HuffmanNode(left.frequency + right.frequency, 0, False)
             parent.left = left
             parent.right = right
 
-            heapq.heappush(heap, (parent.frequency, 0, parent))
+            pos = 0
+            while pos < len(nodes) and nodes[pos].frequency < parent.frequency:
+                pos += 1
 
-        _, _, root = heapq.heappop(heap)
-        return root
+            nodes.insert(pos, parent)
+
+        return nodes[0]
 
     def _build_huffman_codes(self, node: HuffmanNode, code: int, length: int,
                              huffman_codes: HuffmanCodes):
@@ -3722,9 +3722,7 @@ class ArithDecode(Benchmark):
             range_val = high - low + 1
             scaled = ((value - low + 1) * total - 1) // range_val
 
-            symbol = 0
-            while symbol < 255 and high_table[symbol] <= scaled:
-                symbol += 1
+            symbol = bisect_right(high_table, scaled)
 
             result[j] = symbol
 
@@ -3879,7 +3877,7 @@ class LZWDecode(Benchmark):
             elif new_code == next_code:
                 new_str = dictionary[old_code] + dictionary[old_code][:1]
             else:
-                raise ValueError(f"Error decode: code {new_code} not found")
+                return b''
 
             result.extend(new_str)
 
@@ -4363,7 +4361,7 @@ class CsvParse(Benchmark):
             line += f'"[{flag}\\n, {i % 100}]",'
             line += f'{y:.10f}'
             lines.append(line)
-        self.data = '\n'.join(lines)
+        self.data = '\n'.join(lines) + '\n'
 
     def _parse_points(self, data: str):
         points = []
@@ -4403,7 +4401,8 @@ class CsvParse(Benchmark):
                              Helper.checksum_float(z_avg)) & 0xFFFFFFFF
 
     def checksum(self) -> int:
-        return self.result_value & 0xFFFFFFFF
+        return (self.result_value +
+                Helper.checksum_string(self.data)) & 0xFFFFFFFF
 
     def name(self) -> str:
         return "CSV::Parse"

@@ -1,0 +1,158 @@
+use bench::Bench
+use config::Config
+use helper
+
+fn matgen(n: i64) -> Vec<Vec<f64>> {
+    let tmp = 1.0 / (n * n) as f64
+    let mut a: Vec<Vec<f64>> = #[]
+    for i in 0..n {
+        let mut row: Vec<f64> = #[0.0; n]
+        for j in 0..n {
+            row[j] = tmp * (i - j) as f64 * (i + j) as f64
+        }
+        a.push(row)
+    }
+    a
+}
+
+fn transpose(b: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    let n = b.len()
+    let mut t: Vec<Vec<f64>> = #[]
+    for _ in 0..n { t.push(#[0.0; n]) }
+    for i in 0..n {
+        for j in 0..n { t[j][i] = b[i][j] }
+    }
+    t
+}
+
+fn rows_of(a: Vec<Vec<f64>>, bt: Vec<Vec<f64>>, lo: i64, hi: i64) -> Vec<Vec<f64>> {
+    let n = bt.len()
+    let mut block: Vec<Vec<f64>> = #[]
+    for i in lo..hi {
+        let a_row = a[i]
+        let mut c_row: Vec<f64> = #[0.0; n]
+        for j in 0..n {
+            let b_col = bt[j]
+            let mut s = 0.0
+            for k in 0..n { s += a_row[k] * b_col[k] }
+            c_row[j] = s
+        }
+        block.push(c_row)
+    }
+    block
+}
+
+fn matmul_sequential(a: Vec<Vec<f64>>, b: Vec<Vec<f64>>) -> Vec<Vec<f64>> {
+    rows_of(a, transpose(b), 0, a.len())
+}
+
+fn matmul_parallel(a: Vec<Vec<f64>>, b: Vec<Vec<f64>>, threads: i64) -> Vec<Vec<f64>> {
+    let n = a.len()
+    let bt = transpose(b)
+    let mut c: Vec<Vec<f64>> = #[]
+
+    let joined = cohort {
+        let mut handles = #[]
+        for t in 0..threads {
+            let lo = n * t / threads
+            let hi = n * (t + 1) / threads
+            handles.push(spawn(|| rows_of(a, bt, lo, hi)))
+        }
+        for handle in handles {
+            match handle.join() {
+                Ok(rows) => { for row in rows { c.push(row) } }
+                Err(e) => panic("matmul worker failed: {}", e)
+            }
+        }
+    }
+    if let Err(e) = joined { panic("matmul workers failed: {}", e) }
+
+    c
+}
+
+struct Matmul {
+    n: i64
+    a: Vec<Vec<f64>>
+    b: Vec<Vec<f64>>
+    result: u32
+}
+
+impl Matmul {
+    fn new(cfg: Config, name: String) -> Matmul {
+        let n = cfg.int(name, "n")
+        Matmul { n: n, a: matgen(n), b: matgen(n), result: 0 }
+    }
+
+    fn accumulate(&mut self, c: Vec<Vec<f64>>) {
+        let mid = self.n >> 1
+        self.result +%= helper::checksum_f64(c[mid][mid])
+    }
+}
+
+pub struct MatmulSingle { inner: Matmul }
+
+impl MatmulSingle {
+    pub fn new(cfg: Config) -> MatmulSingle {
+        MatmulSingle { inner: Matmul::new(cfg, "Matmul::Single") }
+    }
+}
+
+impl Bench for MatmulSingle {
+    fn run(&mut self, iteration_id: i64) {
+        let c = matmul_sequential(self.inner.a, self.inner.b)
+        self.inner.accumulate(c)
+    }
+
+    fn checksum(&self) -> u32 { self.inner.result }
+}
+
+pub struct MatmulT4 { inner: Matmul }
+
+impl MatmulT4 {
+    pub fn new(cfg: Config) -> MatmulT4 {
+        MatmulT4 { inner: Matmul::new(cfg, "Matmul::T4") }
+    }
+}
+
+impl Bench for MatmulT4 {
+    fn run(&mut self, iteration_id: i64) {
+        let c = matmul_parallel(self.inner.a, self.inner.b, 4)
+        self.inner.accumulate(c)
+    }
+
+    fn checksum(&self) -> u32 { self.inner.result }
+}
+
+pub struct MatmulT8 { inner: Matmul }
+
+impl MatmulT8 {
+    pub fn new(cfg: Config) -> MatmulT8 {
+        MatmulT8 { inner: Matmul::new(cfg, "Matmul::T8") }
+    }
+}
+
+impl Bench for MatmulT8 {
+    fn run(&mut self, iteration_id: i64) {
+        let c = matmul_parallel(self.inner.a, self.inner.b, 8)
+        self.inner.accumulate(c)
+    }
+
+    fn checksum(&self) -> u32 { self.inner.result }
+}
+
+pub struct MatmulT16 { inner: Matmul }
+
+impl MatmulT16 {
+    pub fn new(cfg: Config) -> MatmulT16 {
+        MatmulT16 { inner: Matmul::new(cfg, "Matmul::T16") }
+    }
+}
+
+impl Bench for MatmulT16 {
+    fn run(&mut self, iteration_id: i64) {
+        let c = matmul_parallel(self.inner.a, self.inner.b, 16)
+        self.inner.accumulate(c)
+    }
+
+    fn checksum(&self) -> u32 { self.inner.result }
+}

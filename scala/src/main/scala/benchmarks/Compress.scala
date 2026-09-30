@@ -1,9 +1,10 @@
 package benchmarks
 
-import java.util.PriorityQueue
 import scala.collection.mutable.{HashMap, ArrayBuffer}
 import java.util.ArrayList
 import java.io.ByteArrayOutputStream
+import java.util.Collections
+import scala.collection.Searching._
 
 object Compress {
   def generateTestData(dataSize: Long): Array[Byte] = {
@@ -96,15 +97,13 @@ class BWTEncode extends Benchmark {
 
       var k = 1
       while (k < n) {
+        val pairs = Array.tabulate(n)(i => Pair(rank(i), rank((i + k) % n)))
+
         sa.sortInPlaceWith { (a, b) =>
-          val ra = rank(a)
-          val rb = rank(b)
-          if (ra != rb) ra < rb
-          else {
-            val rak = rank((a + k) % n)
-            val rbk = rank((b + k) % n)
-            rak < rbk
-          }
+          val pa = pairs(a)
+          val pb = pairs(b)
+          if (pa.first != pb.first) pa.first < pb.first
+          else pa.second < pb.second
         }
 
         val newRank = new Array[Int](n)
@@ -113,13 +112,7 @@ class BWTEncode extends Benchmark {
         while (i < n) {
           val prevIdx = sa(i - 1)
           val currIdx = sa(i)
-          newRank(currIdx) = newRank(prevIdx) + (
-            if (
-              rank(prevIdx) != rank(currIdx) ||
-              rank((prevIdx + k) % n) != rank((currIdx + k) % n)
-            ) 1
-            else 0
-          )
+          newRank(currIdx) = newRank(prevIdx) + (if (pairs(prevIdx) != pairs(currIdx)) 1 else 0)
           i += 1
         }
         System.arraycopy(newRank, 0, rank, 0, n)
@@ -144,6 +137,8 @@ class BWTEncode extends Benchmark {
 
     new BWTResult(transformed, originalIdx)
   }
+
+  private case class Pair(first: Int, second: Int)
 }
 
 class BWTDecode extends Benchmark {
@@ -348,18 +343,20 @@ class HuffEncode extends Benchmark {
 
 object HuffEncode {
   def buildHuffmanTree(frequencies: Array[Int]): HuffmanNode = {
-    val heap = new PriorityQueue[HuffmanNode]()
+    val nodes = new java.util.ArrayList[HuffmanNode]()
 
     var i = 0
     while (i < 256) {
       if (frequencies(i) > 0) {
-        heap.offer(new HuffmanNode(frequencies(i), i.toByte, true, null, null))
+        nodes.add(new HuffmanNode(frequencies(i), i.toByte, true, null, null))
       }
       i += 1
     }
 
-    if (heap.size == 1) {
-      val node = heap.poll()
+    nodes.sort((a, b) => a.frequency.compareTo(b.frequency))
+
+    if (nodes.size == 1) {
+      val node = nodes.get(0)
       return new HuffmanNode(
         node.frequency,
         (-1).toByte,
@@ -369,9 +366,9 @@ object HuffEncode {
       )
     }
 
-    while (heap.size > 1) {
-      val left = heap.poll()
-      val right = heap.poll()
+    while (nodes.size > 1) {
+      val left = nodes.remove(0)
+      val right = nodes.remove(0)
 
       val parent = new HuffmanNode(
         left.frequency + right.frequency,
@@ -381,10 +378,13 @@ object HuffEncode {
         right
       )
 
-      heap.offer(parent)
+      val pos = Collections.binarySearch(nodes, parent, (a: HuffmanNode, b: HuffmanNode) => a.frequency.compareTo(b.frequency))
+      val insertPos = if (pos < 0) -pos - 1 else pos
+
+      nodes.add(insertPos, parent)
     }
 
-    heap.poll()
+    nodes.get(0)
   }
 }
 
@@ -702,11 +702,11 @@ class ArithDecode extends Benchmark {
       val range = high - low + 1
       val scaled = ((value - low + 1) * total - 1) / range
 
-      var symbol = 0
-      while (symbol < 255 && highTable(symbol) <= scaled) {
-        symbol += 1
+      val index = highTable.search(scaled.toInt)
+      val symbol = index match {
+        case Found(i)          => i + 1
+        case InsertionPoint(i) => i
       }
-
       result(j) = symbol.toByte
 
       high = low + (range * highTable(symbol) / total) - 1
@@ -876,9 +876,10 @@ class LZWDecode extends Benchmark {
 
       val newStr = if (newCode < dict.size) {
         dict.get(newCode)
-      } else {
-
+      } else if (nextCode == newCode) {
         oldStr + oldStr.charAt(0).toString
+      } else {
+        return new Array[Byte](0)
       }
 
       result.write(newStr.getBytes("ISO-8859-1"))

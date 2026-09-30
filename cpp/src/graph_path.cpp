@@ -120,48 +120,44 @@ int GraphPathAStar::astar_shortest_path(int start, int target) {
   if (start == target)
     return 0;
 
-  std::vector<int> g_score(graph->vertices, INT_MAX);
+  int n = graph->vertices;
+
+  std::vector<int> g_score(n, INT_MAX);
+  std::vector<int> best_f(n, INT_MAX);
+
   g_score[start] = 0;
+  int f_start = heuristic(start, target);
+  best_f[start] = f_start;
 
   using QueueType =
       std::priority_queue<Node, std::vector<Node>, std::greater<Node>>;
   QueueType open_set;
-  open_set.push({start, heuristic(start, target)});
-
-  std::vector<bool> in_open_set(graph->vertices, false);
-  in_open_set[start] = true;
-
-  std::vector<bool> closed(graph->vertices, false);
+  open_set.push({start, f_start});
 
   while (!open_set.empty()) {
     Node current = open_set.top();
     open_set.pop();
 
-    if (closed[current.vertex])
-      continue;
-    closed[current.vertex] = true;
-    in_open_set[current.vertex] = false;
+    int current_vertex = current.vertex;
 
-    if (current.vertex == target)
-      return g_score[current.vertex];
+    if (current_vertex == target)
+      return g_score[current_vertex];
 
-    for (int neighbor : graph->adj[current.vertex]) {
-      if (closed[neighbor])
-        continue;
-
-      int tentative_g = g_score[current.vertex] + 1;
+    for (int neighbor : graph->adj[current_vertex]) {
+      int tentative_g = g_score[current_vertex] + 1;
 
       if (tentative_g < g_score[neighbor]) {
         g_score[neighbor] = tentative_g;
-        int f = tentative_g + heuristic(neighbor, target);
+        int f_new = tentative_g + heuristic(neighbor, target);
 
-        if (!in_open_set[neighbor]) {
-          open_set.push({neighbor, f});
-          in_open_set[neighbor] = true;
+        if (f_new < best_f[neighbor]) {
+          best_f[neighbor] = f_new;
+          open_set.push({neighbor, f_new});
         }
       }
     }
   }
+
   return -1;
 }
 

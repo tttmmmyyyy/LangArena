@@ -1,4 +1,4 @@
-import std/[algorithm, heapqueue, tables]
+import std/[algorithm, tables]
 import ../benchmark
 import ../helper
 
@@ -66,13 +66,16 @@ proc bwtTransform*(input: seq[byte]): BWTResult =
 
     var k = 1
     while k < n:
+      var pairs = newSeq[(int, int)](n)
+      for i in 0..<n:
+        pairs[i] = (rank[i], rank[(i + k) mod n])
 
       sa.sort(proc(a, b: int): int =
-        let ra = rank[a]
-        let rb = rank[b]
-        if ra != rb:
-          return cmp(ra, rb)
-        return cmp(rank[(a + k) mod n], rank[(b + k) mod n])
+        let pa = pairs[a]
+        let pb = pairs[b]
+        if pa[0] != pb[0]:
+          return cmp(pa[0], pb[0])
+        return cmp(pa[1], pb[1])
       )
 
       var newRank = newSeq[int](n)
@@ -80,9 +83,10 @@ proc bwtTransform*(input: seq[byte]): BWTResult =
       for i in 1..<n:
         let prevIdx = sa[i-1]
         let currIdx = sa[i]
-        newRank[currIdx] = newRank[prevIdx] +
-          (if rank[prevIdx] != rank[currIdx] or
-             rank[(prevIdx + k) mod n] != rank[(currIdx + k) mod n]: 1 else: 0)
+        if pairs[prevIdx] == pairs[currIdx]:
+          newRank[currIdx] = newRank[prevIdx]
+        else:
+          newRank[currIdx] = newRank[prevIdx] + 1
 
       rank = newRank
       k *= 2
@@ -195,9 +199,6 @@ type
     bitCount: int
     frequencies: seq[int]
 
-proc `<`(a, b: HuffmanNode): bool =
-  a.frequency < b.frequency
-
 type
   HuffEncode* = ref object of Benchmark
     sizeVal: int64
@@ -215,30 +216,34 @@ method prepare(self: HuffEncode) =
   self.resultVal = 0
 
 proc buildHuffmanTree*(frequencies: seq[int]): HuffmanNode =
-  var heap = initHeapQueue[HuffmanNode]()
+  var nodes: seq[HuffmanNode] = @[]
 
   for i in 0..<256:
     if frequencies[i] > 0:
-      let node = HuffmanNode(
+      nodes.add(HuffmanNode(
         frequency: frequencies[i],
         byteVal: byte(i),
         isLeaf: true
-      )
-      heap.push(node)
+      ))
 
-  if heap.len == 1:
-    let node = heap.pop()
-    result = HuffmanNode(
+  nodes.sort(proc (a, b: HuffmanNode): int =
+    cmp(a.frequency, b.frequency)
+  )
+
+  if nodes.len == 1:
+    let node = nodes[0]
+    return HuffmanNode(
       frequency: node.frequency,
       isLeaf: false,
       left: node,
       right: HuffmanNode(frequency: 0, byteVal: 0, isLeaf: true)
     )
-    return
 
-  while heap.len > 1:
-    let left = heap.pop()
-    let right = heap.pop()
+  while nodes.len > 1:
+    let left = nodes[0]
+    let right = nodes[1]
+
+    nodes = nodes[2..^1]
 
     let parent = HuffmanNode(
       frequency: left.frequency + right.frequency,
@@ -247,9 +252,13 @@ proc buildHuffmanTree*(frequencies: seq[int]): HuffmanNode =
       right: right
     )
 
-    heap.push(parent)
+    var pos = 0
+    while pos < nodes.len and nodes[pos].frequency < parent.frequency:
+      inc(pos)
 
-  result = heap.pop()
+    nodes.insert(parent, pos)
+
+  result = nodes[0]
 
 proc buildHuffmanCodes*(node: HuffmanNode, code, length: int,
                        codes: var HuffmanCodes) =
@@ -595,10 +604,8 @@ proc arithDecode*(encoded: ArithEncodedResult): seq[byte] =
     let range = high - low + 1
     let scaled = ((value - low + 1) * total.uint64 - 1) div range
 
-    var symbol = 0
-    while symbol < 255 and highTable[symbol].uint64 <= scaled:
-      symbol += 1
-
+    let index = upperBound(highTable, scaled.int)
+    var symbol = index
     result1[j] = symbol.byte
 
     high = low + (range * highTable[symbol].uint64 div total.uint64) - 1
@@ -764,8 +771,10 @@ proc lzwDecode*(encoded: LZWResult): seq[byte] =
 
     let currentStr = if newCode < nextCode:
       dict[newCode]
-    else:
+    elif nextCode == newCode:
       oldStr & oldStr[0]
+    else:
+      return @[]
 
     for c in currentStr:
       resultData.add(byte(c))

@@ -1,0 +1,2 @@
+#!/bin/sh
+../xtime.rb node index.js ../run.js "$@"

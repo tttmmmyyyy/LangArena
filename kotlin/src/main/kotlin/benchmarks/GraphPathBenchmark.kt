@@ -1,7 +1,8 @@
 package benchmarks
 
 import Benchmark
-import java.util.*
+import java.util.ArrayDeque
+import java.util.PriorityQueue
 
 abstract class GraphPathBenchmark : Benchmark() {
     protected class Graph(
@@ -38,6 +39,11 @@ abstract class GraphPathBenchmark : Benchmark() {
         }
     }
 
+    protected data class Step(
+        val vertex: Int,
+        val dist: Int,
+    )
+
     protected lateinit var graph: Graph
     private var resultVal: UInt = 0u
 
@@ -50,7 +56,7 @@ abstract class GraphPathBenchmark : Benchmark() {
         graph.generateRandom()
     }
 
-    abstract fun test(): Long
+    abstract fun test(): Int
 
     override fun run(iterationId: Int) {
         resultVal += test().toUInt()
@@ -67,10 +73,10 @@ class GraphPathBFS : GraphPathBenchmark() {
         if (start == target) return 0
 
         val visited = BooleanArray(graph.vertices)
-        val queue = ArrayDeque<Pair<Int, Int>>()
+        val queue = ArrayDeque<Step>()
 
         visited[start] = true
-        queue.add(Pair(start, 0))
+        queue.add(Step(start, 0))
 
         while (queue.isNotEmpty()) {
             val (v, dist) = queue.removeFirst()
@@ -80,7 +86,7 @@ class GraphPathBFS : GraphPathBenchmark() {
 
                 if (!visited[neighbor]) {
                     visited[neighbor] = true
-                    queue.add(Pair(neighbor, dist + 1))
+                    queue.add(Step(neighbor, dist + 1))
                 }
             }
         }
@@ -88,7 +94,7 @@ class GraphPathBFS : GraphPathBenchmark() {
         return -1
     }
 
-    override fun test(): Long = bfsShortestPath(0, graph.vertices - 1).toLong()
+    override fun test(): Int = bfsShortestPath(0, graph.vertices - 1)
 
     override fun name(): String = "Graph::BFS"
 }
@@ -101,10 +107,10 @@ class GraphPathDFS : GraphPathBenchmark() {
         if (start == target) return 0
 
         val visited = BooleanArray(graph.vertices)
-        val stack = ArrayDeque<IntArray>()
+        val stack = ArrayDeque<Step>()
         var bestPath = Int.MAX_VALUE
 
-        stack.add(intArrayOf(start, 0))
+        stack.add(Step(start, 0))
 
         while (stack.isNotEmpty()) {
             val (v, dist) = stack.removeLast()
@@ -116,7 +122,7 @@ class GraphPathDFS : GraphPathBenchmark() {
                 if (neighbor == target) {
                     if (dist + 1 < bestPath) bestPath = dist + 1
                 } else if (!visited[neighbor]) {
-                    stack.add(intArrayOf(neighbor, dist + 1))
+                    stack.add(Step(neighbor, dist + 1))
                 }
             }
         }
@@ -124,19 +130,24 @@ class GraphPathDFS : GraphPathBenchmark() {
         return if (bestPath == Int.MAX_VALUE) -1 else bestPath
     }
 
-    override fun test(): Long = dfsFindPath(0, graph.vertices - 1).toLong()
+    override fun test(): Int = dfsFindPath(0, graph.vertices - 1)
 
     override fun name(): String = "Graph::DFS"
 }
 
-class GraphPathAStar : GraphPathBenchmark() {
-    private data class Node(
-        val vertex: Int,
-        val priority: Int,
-    ) : Comparable<Node> {
-        override fun compareTo(other: Node): Int = this.priority.compareTo(other.priority)
-    }
+class GraphPriorityQueueItem(
+    val priority: Int,
+    val vertex: Int,
+) : Comparable<GraphPriorityQueueItem> {
+    override fun compareTo(other: GraphPriorityQueueItem): Int =
+        if (priority != other.priority) {
+            priority.compareTo(other.priority)
+        } else {
+            vertex.compareTo(other.vertex)
+        }
+}
 
+class GraphPathAStar : GraphPathBenchmark() {
     private fun heuristic(
         v: Int,
         target: Int,
@@ -148,41 +159,36 @@ class GraphPathAStar : GraphPathBenchmark() {
     ): Int {
         if (start == target) return 0
 
-        val gScore = IntArray(graph.vertices) { Int.MAX_VALUE }
-        val fScore = IntArray(graph.vertices) { Int.MAX_VALUE }
-        val closed = BooleanArray(graph.vertices)
+        val n = graph.vertices
+
+        val gScore = IntArray(n) { Int.MAX_VALUE }
+        val bestF = IntArray(n) { Int.MAX_VALUE }
 
         gScore[start] = 0
-        fScore[start] = heuristic(start, target)
+        val fStart = heuristic(start, target)
+        bestF[start] = fStart
 
-        val openSet = PriorityQueue<Node>()
-        val inOpenSet = BooleanArray(graph.vertices)
-
-        openSet.add(Node(start, fScore[start]))
-        inOpenSet[start] = true
+        val openSet = PriorityQueue<GraphPriorityQueueItem>()
+        openSet.add(GraphPriorityQueueItem(fStart, start))
 
         while (openSet.isNotEmpty()) {
             val current = openSet.poll()
-            inOpenSet[current.vertex] = false
+            val currentVertex = current.vertex
 
-            if (current.vertex == target) {
-                return gScore[current.vertex]
+            if (currentVertex == target) {
+                return gScore[currentVertex]
             }
 
-            closed[current.vertex] = true
-
-            for (neighbor in graph.adj[current.vertex]) {
-                if (closed[neighbor]) continue
-
-                val tentativeG = gScore[current.vertex] + 1
+            for (neighbor in graph.adj[currentVertex]) {
+                val tentativeG = gScore[currentVertex] + 1
 
                 if (tentativeG < gScore[neighbor]) {
                     gScore[neighbor] = tentativeG
-                    fScore[neighbor] = tentativeG + heuristic(neighbor, target)
+                    val fNew = tentativeG + heuristic(neighbor, target)
 
-                    if (!inOpenSet[neighbor]) {
-                        openSet.add(Node(neighbor, fScore[neighbor]))
-                        inOpenSet[neighbor] = true
+                    if (fNew < bestF[neighbor]) {
+                        bestF[neighbor] = fNew
+                        openSet.add(GraphPriorityQueueItem(fNew, neighbor))
                     }
                 }
             }
@@ -191,7 +197,7 @@ class GraphPathAStar : GraphPathBenchmark() {
         return -1
     }
 
-    override fun test(): Long = aStarShortestPath(0, graph.vertices - 1).toLong()
+    override fun test(): Int = aStarShortestPath(0, graph.vertices - 1)
 
     override fun name(): String = "Graph::AStar"
 }

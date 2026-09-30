@@ -1,0 +1,181 @@
+use bench::Bench
+use config::Config
+use helper
+
+const CHARS: String = "abcdefghij"
+
+fn generate_pair_strings(rng: &mut helper::Rng, n: i64, m: i64) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = Vec::with_capacity(n)
+
+    for _ in 0..n {
+        let len1 = rng.next_int(m) + 4
+        let len2 = rng.next_int(m) + 4
+
+        let mut str1 = String::with_capacity(len1)
+        for _ in 0..len1 { str1.push_char(CHARS[rng.next_int(10)]) }
+        let mut str2 = String::with_capacity(len2)
+        for _ in 0..len2 { str2.push_char(CHARS[rng.next_int(10)]) }
+
+        pairs.push((str1, str2))
+    }
+
+    pairs
+}
+
+pub struct Jaro {
+    count: i64
+    size: i64
+    pairs: Vec<(String, String)>
+    result: u32
+    rng: helper::Rng
+}
+
+impl Jaro {
+    pub fn new(cfg: Config) -> Jaro {
+        Jaro {
+            count: cfg.int("Distance::Jaro", "count")
+            size: cfg.int("Distance::Jaro", "size")
+            pairs: #[]
+            result: 0
+            rng: helper::Rng::new()
+        }
+    }
+
+    fn jaro(s1: String, s2: String) -> f64 {
+        let bytes1 = s1.as_bytes()
+        let bytes2 = s2.as_bytes()
+
+        let len1 = bytes1.len()
+        let len2 = bytes2.len()
+
+        if len1 == 0 || len2 == 0 { return 0.0 }
+
+        let longest = if len1 > len2 { len1 } else { len2 }
+        let match_dist = if longest / 2 > 0 { longest / 2 - 1 } else { 0 }
+
+        let mut s1_matches: Vec<bool> = #[false; len1]
+        let mut s2_matches: Vec<bool> = #[false; len2]
+
+        let mut match_count = 0
+        for i in 0..len1 {
+            let start = if i > match_dist { i - match_dist } else { 0 }
+            let end = if len2 - 1 < i + match_dist { len2 - 1 } else { i + match_dist }
+
+            for j in start..=end {
+                if !s2_matches[j] && bytes1[i] == bytes2[j] {
+                    s1_matches[i] = true
+                    s2_matches[j] = true
+                    match_count += 1
+                    break
+                }
+            }
+        }
+
+        if match_count == 0 { return 0.0 }
+
+        let mut transpositions = 0
+        let mut k = 0
+        for i in 0..len1 {
+            if s1_matches[i] {
+                while k < len2 && !s2_matches[k] { k += 1 }
+                if k < len2 {
+                    if bytes1[i] != bytes2[k] { transpositions += 1 }
+                    k += 1
+                }
+            }
+        }
+        transpositions /= 2
+
+        let m = match_count as f64
+        (m / len1 as f64 + m / len2 as f64 + (m - transpositions as f64) / m) / 3.0
+    }
+}
+
+impl Bench for Jaro {
+    fn prepare(&mut self) {
+        self.pairs = generate_pair_strings(&mut self.rng, self.count, self.size)
+        self.result = 0
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        for (s1, s2) in self.pairs {
+            self.result +%= (Jaro::jaro(s1, s2) * 1000.0) as u32
+        }
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}
+
+pub struct NGram {
+    count: i64
+    size: i64
+    pairs: Vec<(String, String)>
+    result: u32
+    n: i64
+    rng: helper::Rng
+}
+
+impl NGram {
+    pub fn new(cfg: Config) -> NGram {
+        NGram {
+            count: cfg.int("Distance::NGram", "count")
+            size: cfg.int("Distance::NGram", "size")
+            pairs: #[]
+            result: 0
+            n: 4
+            rng: helper::Rng::new()
+        }
+    }
+
+    fn ngram(&self, s1: String, s2: String) -> f64 {
+        let s1_bytes = s1.as_bytes()
+        let s2_bytes = s2.as_bytes()
+
+        let len1 = s1_bytes.len()
+        let len2 = s2_bytes.len()
+
+        if len1 < self.n || len2 < self.n { return 0.0 }
+
+        let mut grams1: Map<u32, i32> = Map::with_capacity(len1)
+
+        for i in 0..=len1 - self.n {
+            let gram = ((s1_bytes[i] as u32) << 24) | ((s1_bytes[i + 1] as u32) << 16) |
+            ((s1_bytes[i + 2] as u32) << 8) | (s1_bytes[i + 3] as u32)
+
+            grams1.insert(gram, grams1.get(gram).unwrap_or(0) + 1)
+        }
+
+        let mut grams2: Map<u32, i32> = Map::with_capacity(len2)
+        let mut intersection = 0
+
+        for i in 0..=len2 - self.n {
+            let gram = ((s2_bytes[i] as u32) << 24) | ((s2_bytes[i + 1] as u32) << 16) |
+            ((s2_bytes[i + 2] as u32) << 8) | (s2_bytes[i + 3] as u32)
+
+            let count2 = grams2.get(gram).unwrap_or(0) + 1
+            grams2.insert(gram, count2)
+
+            if let Some(count1) = grams1.get(gram) {
+                if count2 <= count1 { intersection += 1 }
+            }
+        }
+
+        let total = grams1.len() + grams2.len()
+        if total > 0 { intersection as f64 / total as f64 } else { 0.0 }
+    }
+}
+
+impl Bench for NGram {
+    fn prepare(&mut self) {
+        self.pairs = generate_pair_strings(&mut self.rng, self.count, self.size)
+        self.result = 0
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        for (s1, s2) in self.pairs {
+            self.result +%= (self.ngram(s1, s2) * 1000.0) as u32
+        }
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}

@@ -1,0 +1,129 @@
+use bench::Bench
+use config::Config
+use helper
+
+const FNV_OFFSET: u32 = 2166136261
+const FNV_PRIME: u32 = 16777619
+
+struct Cell {
+    alive: bool
+    next_state: bool
+    neighbors: Vec<(i64, i64)>
+}
+
+impl Cell {
+    fn new(alive: bool) -> Cell {
+        Cell { alive: alive, next_state: false, neighbors: Vec::with_capacity(8) }
+    }
+
+    fn add_neighbor(&mut self, x: i64, y: i64) { self.neighbors.push((x, y)) }
+
+    fn compute_next_state(&self, cells: [Vec<Cell>]) -> bool {
+        let mut alive_neighbors = 0
+        for (x, y) in self.neighbors {
+            if cells[y][x].alive { alive_neighbors += 1 }
+        }
+
+        if self.alive {
+            alive_neighbors == 2 || alive_neighbors == 3
+        } else {
+            alive_neighbors == 3
+        }
+    }
+
+    fn update(&mut self) { self.alive = self.next_state }
+}
+
+struct Grid {
+    width: i64
+    height: i64
+    cells: Vec<Vec<Cell>>
+}
+
+impl Grid {
+    fn new(width: i64, height: i64) -> Grid {
+        let mut cells: Vec<Vec<Cell>> = #[]
+        for _ in 0..height {
+            let mut row: Vec<Cell> = #[]
+            for _ in 0..width {
+                row.push(Cell::new(false))
+            }
+            cells.push(row)
+        }
+
+        let mut grid = Grid { width: width, height: height, cells: cells }
+        grid.link_neighbors()
+        grid
+    }
+
+    fn link_neighbors(&mut self) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dx == 0 && dy == 0 { continue }
+                        let ny = (y + dy + self.height) % self.height
+                        let nx = (x + dx + self.width) % self.width
+                        self.cells[y][x].add_neighbor(nx, ny)
+                    }
+                }
+            }
+        }
+    }
+
+    fn next_generation(&mut self) {
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let next_state = self.cells[y][x].compute_next_state(self.cells)
+                self.cells[y][x].next_state = next_state
+            }
+        }
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                self.cells[y][x].update()
+            }
+        }
+    }
+}
+
+pub struct GameOfLife {
+    grid: Grid
+    rng: helper::Rng
+}
+
+impl GameOfLife {
+    pub fn new(cfg: Config) -> GameOfLife {
+        GameOfLife {
+            grid: Grid::new(cfg.int("Etc::GameOfLife", "w"), cfg.int("Etc::GameOfLife", "h"))
+            rng: helper::Rng::new()
+        }
+    }
+}
+
+impl Bench for GameOfLife {
+    fn prepare(&mut self) {
+        for y in 0..self.grid.height {
+            for x in 0..self.grid.width {
+                if self.rng.next_float(1.0) < 0.1 { self.grid.cells[y][x].alive = true }
+            }
+        }
+    }
+
+    fn run(&mut self, iteration_id: i64) { self.grid.next_generation() }
+
+    fn checksum(&self) -> u32 {
+        let mut alive: u32 = 0
+        let mut hash = FNV_OFFSET
+
+        for row in self.grid.cells {
+            for cell in row {
+                if cell.alive { alive += 1 }
+                let bit: u32 = if cell.alive { 1 } else { 0 }
+                hash = (hash ^ bit) *% FNV_PRIME
+            }
+        }
+
+        hash +% alive
+    }
+}

@@ -1,0 +1,21 @@
+FROM langarena:rust
+
+ARG version
+
+# `gos build --release` links a self-contained static-musl executable, whose
+# CRT and libc come from rustup's self-contained musl target directory. The
+# LLVM tools the native backend drives (opt, llc) and the linker (rust-lld)
+# ship with the Rust toolchain's llvm-tools component.
+RUN rustup target add x86_64-unknown-linux-musl \
+    && ln -s $(rustc --print sysroot)/lib/rustlib/$(rustc -vV | grep host | cut -d" " -f2)/bin/opt /usr/local/bin/opt \
+    && ln -s $(rustc --print sysroot)/lib/rustlib/$(rustc -vV | grep host | cut -d" " -f2)/bin/llc /usr/local/bin/llc
+
+# `gos` resolves its runtime archives relative to itself, as <bin>/../lib.
+RUN wget --progress=dot:giga -O - \
+    https://github.com/gossamer-lang/gossamer/releases/download/v$version/gos-$version-linux-x86_64.tar.gz \
+    | tar -xz \
+    && mv /opt/gos-$version-linux-x86_64 /opt/gossamer \
+    && mkdir /opt/gossamer/bin /opt/gossamer/lib \
+    && mv /opt/gossamer/gos /opt/gossamer/bin/ \
+    && mv /opt/gossamer/libgossamer_runtime.a /opt/gossamer/libgossamer_runtime-musl.a /opt/gossamer/lib/
+ENV PATH="/opt/gossamer/bin:${PATH}"

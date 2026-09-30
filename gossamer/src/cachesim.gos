@@ -1,0 +1,176 @@
+use bench::Bench
+use config::Config
+use helper
+
+struct Node {
+    key: String
+    value: String
+    prev: Option<i64>
+    next: Option<i64>
+}
+
+impl Node {
+    fn new(key: String, value: String) -> Node { Node { key: key, value: value, prev: None, next: None } }
+}
+
+struct LruCache {
+    capacity: i64
+    cache: Map<String, i64>
+    nodes: Vec<Node>
+    free: Stack<i64>
+    head: Option<i64>
+    tail: Option<i64>
+    size: i64
+}
+
+impl LruCache {
+    fn new(capacity: i64) -> LruCache {
+        LruCache {
+            capacity: capacity
+            cache: Map::with_capacity(capacity)
+            nodes: Vec::with_capacity(capacity)
+            free: Stack::new()
+            head: None
+            tail: None
+            size: 0
+        }
+    }
+
+    fn get(&mut self, key: String) -> Option<String> {
+        let node = self.cache.get(key)?
+        self.move_to_front(node)
+        Some(self.nodes[node].value)
+    }
+
+    fn put(&mut self, key: String, value: String) {
+        if let Some(node) = self.cache.get(key) {
+            self.nodes[node].value = value
+            self.move_to_front(node)
+            return
+        }
+
+        if self.size >= self.capacity { self.remove_oldest() }
+
+        let node = match self.free.pop() {
+            Some(slot) => {
+                self.nodes[slot] = Node::new(key, value)
+                slot
+            }
+            None => {
+                self.nodes.push(Node::new(key, value))
+                self.nodes.len() - 1
+            }
+        }
+
+        self.cache.insert(key, node)
+        self.add_to_front(node)
+        self.size += 1
+    }
+
+    fn len(&self) -> i64 { self.size }
+
+    fn move_to_front(&mut self, node: i64) {
+        if Some(node) == self.head { return }
+
+        let prev = self.nodes[node].prev
+        let next = self.nodes[node].next
+
+        if let Some(prev_node) = prev { self.nodes[prev_node].next = next }
+        if let Some(next_node) = next { self.nodes[next_node].prev = prev }
+
+        if Some(node) == self.tail { self.tail = prev }
+
+        self.nodes[node].prev = None
+        self.nodes[node].next = self.head
+
+        if let Some(head_node) = self.head { self.nodes[head_node].prev = Some(node) }
+
+        self.head = Some(node)
+
+        if self.tail.is_none() { self.tail = Some(node) }
+    }
+
+    fn add_to_front(&mut self, node: i64) {
+        self.nodes[node].next = self.head
+
+        if let Some(head_node) = self.head { self.nodes[head_node].prev = Some(node) }
+
+        self.head = Some(node)
+
+        if self.tail.is_none() { self.tail = Some(node) }
+    }
+
+    fn remove_oldest(&mut self) {
+        if let Some(tail_node) = self.tail {
+            let _ = self.cache.remove(self.nodes[tail_node].key)
+
+            let prev = self.nodes[tail_node].prev
+            if let Some(prev_node) = prev { self.nodes[prev_node].next = None }
+
+            self.tail = prev
+
+            if Some(tail_node) == self.head { self.head = None }
+
+            self.free.push(tail_node)
+            self.size -= 1
+        }
+    }
+}
+
+pub struct CacheSimulation {
+    values_size: i64
+    cache_size: i64
+    cache: LruCache
+    hits: i64
+    misses: i64
+    rng: helper::Rng
+}
+
+impl CacheSimulation {
+    pub fn new(cfg: Config) -> CacheSimulation {
+        let cache_size = cfg.int("Etc::CacheSimulation", "size")
+        CacheSimulation {
+            values_size: cfg.int("Etc::CacheSimulation", "values")
+            cache_size: cache_size
+            cache: LruCache::new(cache_size)
+            hits: 0
+            misses: 0
+            rng: helper::Rng::new()
+        }
+    }
+}
+
+impl Bench for CacheSimulation {
+    fn prepare(&mut self) {
+        self.cache = LruCache::new(self.cache_size)
+        self.hits = 0
+        self.misses = 0
+    }
+
+    fn warmup(&mut self, iterations: i64) {
+        for i in 0..iterations { self.run(i) }
+        self.rng.reset()
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        for _ in 0..1000 {
+            let key = format("item_{}", self.rng.next_int(self.values_size))
+
+            if self.cache.get(key).is_some() {
+                self.hits += 1
+                self.cache.put(key, format("updated_{}", iteration_id))
+            } else {
+                self.misses += 1
+                self.cache.put(key, format("new_{}", iteration_id))
+            }
+        }
+    }
+
+    fn checksum(&self) -> u32 {
+        let mut result: u32 = 5432
+        result = (result << 5) +% self.hits as u32
+        result = (result << 5) +% self.misses as u32
+        result = (result << 5) +% self.cache.len() as u32
+        result
+    }
+}

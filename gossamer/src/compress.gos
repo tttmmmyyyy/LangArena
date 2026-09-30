@@ -1,0 +1,880 @@
+use bench::Bench
+use config::Config
+
+fn generate_test_data(size: i64) -> Vec<u8> {
+    let pattern = "ABRACADABRA".as_bytes()
+    let pattern_len = pattern.len()
+    let mut data: Vec<u8> = Vec::with_capacity(size)
+
+    for i in 0..size { data.push(pattern[i % pattern_len]) }
+
+    data
+}
+
+struct BwtResult {
+    transformed: Vec<u8>
+    original_idx: i64
+}
+
+impl BwtResult {
+    fn new(transformed: Vec<u8>, original_idx: i64) -> BwtResult {
+        BwtResult { transformed: transformed, original_idx: original_idx }
+    }
+}
+
+struct BwtPair {
+    first: i64
+    second: i64
+}
+
+fn bwt_transform(input: [u8]) -> BwtResult {
+    let n = input.len()
+    if n == 0 { return BwtResult::new(#[], 0) }
+
+    let mut counts: [i64; 256] = [0; 256]
+    for byte in input { counts[byte as i64] += 1 }
+
+    let mut positions: [i64; 256] = [0; 256]
+    let mut total = 0
+    for i in 0..256 {
+        positions[i] = total
+        total += counts[i]
+    }
+
+    let mut sa: Vec<i64> = #[0; n]
+    let mut temp_counts: [i64; 256] = [0; 256]
+    for i in 0..n {
+        let byte = input[i] as i64
+        let pos = positions[byte] + temp_counts[byte]
+        sa[pos] = i
+        temp_counts[byte] += 1
+    }
+
+    if n > 1 {
+        let mut rank: Vec<i64> = #[0; n]
+        let mut current_rank = 0
+        let mut prev_char = input[sa[0]]
+
+        for i in 0..n {
+            let idx = sa[i]
+            if input[idx] != prev_char {
+                current_rank += 1
+                prev_char = input[idx]
+            }
+            rank[idx] = current_rank
+        }
+
+        let mut k = 1
+        while k < n {
+            let mut pairs: Vec<BwtPair> = Vec::with_capacity(n)
+            for i in 0..n { pairs.push(BwtPair { first: rank[i], second: rank[(i + k) % n] }) }
+
+            sa.sort_by(|a, b| {
+                let pa = pairs[a]
+                let pb = pairs[b]
+                if pa.first != pb.first { pa.first - pb.first } else { pa.second - pb.second }
+            })
+
+            let mut new_rank: Vec<i64> = #[0; n]
+            new_rank[sa[0]] = 0
+            for i in 1..n {
+                let prev = sa[i - 1]
+                let curr = sa[i]
+                let same = pairs[prev] == pairs[curr]
+                new_rank[curr] = new_rank[prev] + if same { 0 } else { 1 }
+            }
+
+            rank = new_rank
+            k <<= 1
+        }
+    }
+
+    let mut transformed: Vec<u8> = #[0; n]
+    let mut original_idx = 0
+
+    for (i, suffix) in sa.iter().enumerate() {
+        if suffix == 0 {
+            transformed[i] = input[n - 1]
+            original_idx = i
+        } else {
+            transformed[i] = input[suffix - 1]
+        }
+    }
+
+    BwtResult::new(transformed, original_idx)
+}
+
+pub struct BwtEncode {
+    size_val: i64
+    test_data: Vec<u8>
+    bwt_result: BwtResult
+    result: u32
+}
+
+impl BwtEncode {
+    pub fn new(cfg: Config) -> BwtEncode { BwtEncode::with_size(cfg.int("Compress::BWTEncode", "size")) }
+
+    fn with_size(size_val: i64) -> BwtEncode {
+        BwtEncode { size_val: size_val, test_data: #[], bwt_result: BwtResult::new(#[], 0), result: 0 }
+    }
+}
+
+impl Bench for BwtEncode {
+    fn prepare(&mut self) { self.test_data = generate_test_data(self.size_val) }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.bwt_result = bwt_transform(self.test_data)
+        self.result +%= self.bwt_result.transformed.len() as u32
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}
+
+fn bwt_inverse(bwt_result: BwtResult) -> Vec<u8> {
+    let bwt = bwt_result.transformed
+    let n = bwt.len()
+    if n == 0 { return #[] }
+
+    let mut counts: [i64; 256] = [0; 256]
+    for byte in bwt { counts[byte as i64] += 1 }
+
+    let mut positions: [i64; 256] = [0; 256]
+    let mut total = 0
+    for i in 0..256 {
+        positions[i] = total
+        total += counts[i]
+    }
+
+    let mut next: Vec<i64> = #[0; n]
+    let mut temp_counts: [i64; 256] = [0; 256]
+
+    for (i, byte) in bwt.iter().enumerate() {
+        let byte_idx = byte as i64
+        let pos = positions[byte_idx] + temp_counts[byte_idx]
+        next[pos] = i
+        temp_counts[byte_idx] += 1
+    }
+
+    let mut result: Vec<u8> = #[0; n]
+    let mut idx = bwt_result.original_idx
+
+    for i in 0..n {
+        idx = next[idx]
+        result[i] = bwt[idx]
+    }
+
+    result
+}
+
+pub struct BwtDecode {
+    size_val: i64
+    test_data: Vec<u8>
+    inverted: Vec<u8>
+    bwt_result: BwtResult
+    result: u32
+}
+
+impl BwtDecode {
+    pub fn new(cfg: Config) -> BwtDecode {
+        BwtDecode {
+            size_val: cfg.int("Compress::BWTDecode", "size")
+            test_data: #[]
+            inverted: #[]
+            bwt_result: BwtResult::new(#[], 0)
+            result: 0
+        }
+    }
+}
+
+impl Bench for BwtDecode {
+    fn prepare(&mut self) {
+        let mut encoder = BwtEncode::with_size(self.size_val)
+        encoder.prepare()
+        encoder.run(0)
+        self.test_data = encoder.test_data
+        self.bwt_result = encoder.bwt_result
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.inverted = bwt_inverse(self.bwt_result)
+        self.result +%= self.inverted.len() as u32
+    }
+
+    fn checksum(&self) -> u32 {
+        let mut res = self.result
+        if self.inverted == self.test_data { res +%= 100_000 }
+        res
+    }
+}
+
+struct HuffmanNode {
+    frequency: i64
+    byte_val: u8
+    is_leaf: bool
+    left: Option<HuffmanNode>
+    right: Option<HuffmanNode>
+}
+
+impl HuffmanNode {
+    fn new(freq: i64, byte: u8, leaf: bool) -> HuffmanNode {
+        HuffmanNode { frequency: freq, byte_val: byte, is_leaf: leaf, left: None, right: None }
+    }
+}
+
+struct HuffmanCodes {
+    code_lengths: Vec<i64>
+    codes: Vec<i64>
+}
+
+impl HuffmanCodes {
+    fn new() -> HuffmanCodes { HuffmanCodes { code_lengths: #[0; 256], codes: #[0; 256] } }
+}
+
+struct EncodedResult {
+    data: Vec<u8>
+    bit_count: i64
+    frequencies: Vec<i64>
+}
+
+impl EncodedResult {
+    fn new(data: Vec<u8>, bit_count: i64, frequencies: Vec<i64>) -> EncodedResult {
+        EncodedResult { data: data, bit_count: bit_count, frequencies: frequencies }
+    }
+}
+
+fn build_huffman_tree(frequencies: [i64]) -> Option<HuffmanNode> {
+    let mut nodes: Vec<HuffmanNode> = #[]
+    for (i, freq) in frequencies.iter().enumerate() {
+        if freq > 0 { nodes.push(HuffmanNode::new(freq, i as u8, true)) }
+    }
+
+    nodes.sort_by(|a, b| a.frequency - b.frequency)
+
+    if nodes.len() == 1 {
+        let node = nodes.remove(0).unwrap()
+        let mut root = HuffmanNode::new(node.frequency, 0, false)
+        root.left = Some(node)
+        root.right = Some(HuffmanNode::new(0, 0, true))
+        return Some(root)
+    }
+
+    while nodes.len() > 1 {
+        let left = nodes.remove(0).unwrap()
+        let right = nodes.remove(0).unwrap()
+
+        let mut parent = HuffmanNode::new(left.frequency + right.frequency, 0, false)
+        parent.left = Some(left)
+        parent.right = Some(right)
+
+        let mut lo = 0
+        let mut hi = nodes.len()
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if nodes[mid].frequency >= parent.frequency { hi = mid } else { lo = mid + 1 }
+        }
+        let _ = nodes.insert(lo, parent)
+    }
+
+    nodes.pop()
+}
+
+fn build_huffman_codes(node: HuffmanNode, code: i64, length: i64, huffman_codes: &mut HuffmanCodes) {
+    if node.is_leaf {
+        if length > 0 || node.byte_val != 0 {
+            let idx = node.byte_val as i64
+            huffman_codes.code_lengths[idx] = length
+            huffman_codes.codes[idx] = code
+        }
+    } else {
+        if let Some(left) = node.left { build_huffman_codes(left, code << 1, length + 1, huffman_codes) }
+        if let Some(right) = node.right {
+            build_huffman_codes(right, (code << 1) | 1, length + 1, huffman_codes)
+        }
+    }
+}
+
+fn huffman_encode(data: [u8], codes: HuffmanCodes, frequencies: Vec<i64>) -> EncodedResult {
+    let mut result: Vec<u8> = Vec::with_capacity(data.len() * 2)
+    let mut current_byte: u8 = 0
+    let mut bit_pos = 0
+    let mut total_bits = 0
+
+    for byte in data {
+        let idx = byte as i64
+        let code = codes.codes[idx]
+        let length = codes.code_lengths[idx]
+
+        for i in (0..length).rev() {
+            if (code & (1 << i)) != 0 { current_byte |= (1 << (7 - bit_pos)) as u8 }
+            bit_pos += 1
+            total_bits += 1
+
+            if bit_pos == 8 {
+                result.push(current_byte)
+                current_byte = 0
+                bit_pos = 0
+            }
+        }
+    }
+
+    if bit_pos > 0 { result.push(current_byte) }
+
+    EncodedResult::new(result, total_bits, frequencies)
+}
+
+pub struct HuffEncode {
+    size_val: i64
+    test_data: Vec<u8>
+    encoded: EncodedResult
+    result: u32
+}
+
+impl HuffEncode {
+    pub fn new(cfg: Config) -> HuffEncode { HuffEncode::with_size(cfg.int("Compress::HuffEncode", "size")) }
+
+    fn with_size(size_val: i64) -> HuffEncode {
+        HuffEncode {
+            size_val: size_val
+            test_data: #[]
+            encoded: EncodedResult::new(#[], 0, #[])
+            result: 0
+        }
+    }
+}
+
+impl Bench for HuffEncode {
+    fn prepare(&mut self) { self.test_data = generate_test_data(self.size_val) }
+
+    fn run(&mut self, iteration_id: i64) {
+        let mut frequencies: Vec<i64> = #[0; 256]
+        for byte in self.test_data { frequencies[byte as i64] += 1 }
+
+        let tree = build_huffman_tree(frequencies)
+
+        let mut codes = HuffmanCodes::new()
+        if let Some(tree) = tree { build_huffman_codes(tree, 0, 0, &mut codes) }
+
+        self.encoded = huffman_encode(self.test_data, codes, frequencies)
+        self.result +%= self.encoded.data.len() as u32
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}
+
+fn huffman_decode(encoded: [u8], root: HuffmanNode, bit_count: i64) -> Vec<u8> {
+    let mut result: Vec<u8> = #[0; bit_count]
+    let mut result_size = 0
+
+    let mut current_node = root
+    let mut bits_processed = 0
+    let mut byte_index = 0
+
+    while bits_processed < bit_count && byte_index < encoded.len() {
+        let byte_val = encoded[byte_index]
+        byte_index += 1
+
+        for bit_pos in (0..8).rev() {
+            if bits_processed >= bit_count { break }
+
+            let bit = ((byte_val >> bit_pos as u8) & 1) == 1
+            bits_processed += 1
+
+            current_node = if bit { current_node.right.unwrap() } else { current_node.left.unwrap() }
+
+            if current_node.is_leaf {
+                if current_node.byte_val != 0 {
+                    result[result_size] = current_node.byte_val
+                    result_size += 1
+                }
+                current_node = root
+            }
+        }
+    }
+
+    result.truncate(result_size)
+    result
+}
+
+pub struct HuffDecode {
+    size_val: i64
+    test_data: Vec<u8>
+    decoded: Vec<u8>
+    encoded: EncodedResult
+    result: u32
+}
+
+impl HuffDecode {
+    pub fn new(cfg: Config) -> HuffDecode {
+        HuffDecode {
+            size_val: cfg.int("Compress::HuffDecode", "size")
+            test_data: #[]
+            decoded: #[]
+            encoded: EncodedResult::new(#[], 0, #[])
+            result: 0
+        }
+    }
+}
+
+impl Bench for HuffDecode {
+    fn prepare(&mut self) {
+        self.test_data = generate_test_data(self.size_val)
+
+        let mut encoder = HuffEncode::with_size(self.size_val)
+        encoder.prepare()
+        encoder.run(0)
+        self.encoded = encoder.encoded
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        let tree = build_huffman_tree(self.encoded.frequencies)
+        if let Some(tree) = tree {
+            self.decoded = huffman_decode(self.encoded.data, tree, self.encoded.bit_count)
+            self.result +%= self.decoded.len() as u32
+        }
+    }
+
+    fn checksum(&self) -> u32 {
+        let mut res = self.result
+        if self.decoded == self.test_data { res +%= 100_000 }
+        res
+    }
+}
+
+struct ArithEncodedResult {
+    data: Vec<u8>
+    frequencies: Vec<i64>
+}
+
+impl ArithEncodedResult {
+    fn new() -> ArithEncodedResult { ArithEncodedResult { data: #[], frequencies: #[] } }
+}
+
+struct ArithFreqTable {
+    total: i64
+    low: Vec<i64>
+    high: Vec<i64>
+}
+
+impl ArithFreqTable {
+    fn new(frequencies: [i64]) -> ArithFreqTable {
+        let total = frequencies.sum()
+        let mut low: Vec<i64> = #[0; 256]
+        let mut high: Vec<i64> = #[0; 256]
+
+        let mut cum = 0
+        for i in 0..256 {
+            low[i] = cum
+            cum += frequencies[i]
+            high[i] = cum
+        }
+
+        ArithFreqTable { total: total, low: low, high: high }
+    }
+}
+
+struct BitOutputStream {
+    buffer: u8
+    bit_pos: i64
+    bytes: Vec<u8>
+    bits_written: i64
+}
+
+impl BitOutputStream {
+    fn new() -> BitOutputStream { BitOutputStream { buffer: 0, bit_pos: 0, bytes: #[], bits_written: 0 } }
+
+    fn write_bit(&mut self, bit: i64) {
+        self.buffer = (self.buffer << 1) | (bit as u8 & 1)
+        self.bit_pos += 1
+        self.bits_written += 1
+
+        if self.bit_pos == 8 {
+            self.bytes.push(self.buffer)
+            self.buffer = 0
+            self.bit_pos = 0
+        }
+    }
+
+    fn flush(&mut self) -> Vec<u8> {
+        if self.bit_pos > 0 {
+            self.buffer <<= (8 - self.bit_pos) as u8
+            self.bytes.push(self.buffer)
+        }
+        let bytes = self.bytes
+        self.bytes = #[]
+        bytes
+    }
+}
+
+fn arith_encode(data: [u8]) -> ArithEncodedResult {
+    let mut frequencies: Vec<i64> = #[0; 256]
+    for byte in data { frequencies[byte as i64] += 1 }
+
+    let freq_table = ArithFreqTable::new(frequencies)
+
+    let mut low: i64 = 0
+    let mut high: i64 = 0xFFFFFFFF
+    let mut pending = 0
+    let mut output = BitOutputStream::new()
+
+    for byte in data {
+        let idx = byte as i64
+        let range = high - low + 1
+
+        high = low + (range * freq_table.high[idx] / freq_table.total) - 1
+        low = low + (range * freq_table.low[idx] / freq_table.total)
+
+        loop {
+            if high < 0x80000000 {
+                output.write_bit(0)
+                for _ in 0..pending { output.write_bit(1) }
+                pending = 0
+            } else if low >= 0x80000000 {
+                output.write_bit(1)
+                for _ in 0..pending { output.write_bit(0) }
+                pending = 0
+                low -= 0x80000000
+                high -= 0x80000000
+            } else if low >= 0x40000000 && high < 0xC0000000 {
+                pending += 1
+                low -= 0x40000000
+                high -= 0x40000000
+            } else {
+                break
+            }
+
+            low <<= 1
+            high = (high << 1) | 1
+            high &= 0xFFFFFFFF
+        }
+    }
+
+    pending += 1
+    if low < 0x40000000 {
+        output.write_bit(0)
+        for _ in 0..pending { output.write_bit(1) }
+    } else {
+        output.write_bit(1)
+        for _ in 0..pending { output.write_bit(0) }
+    }
+
+    ArithEncodedResult { data: output.flush(), frequencies: frequencies }
+}
+
+pub struct ArithEncode {
+    size_val: i64
+    result: u32
+    test_data: Vec<u8>
+    encoded: ArithEncodedResult
+}
+
+impl ArithEncode {
+    pub fn new(cfg: Config) -> ArithEncode { ArithEncode::with_size(cfg.int("Compress::ArithEncode", "size")) }
+
+    fn with_size(size_val: i64) -> ArithEncode {
+        ArithEncode { size_val: size_val, result: 0, test_data: #[], encoded: ArithEncodedResult::new() }
+    }
+}
+
+impl Bench for ArithEncode {
+    fn prepare(&mut self) { self.test_data = generate_test_data(self.size_val) }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.encoded = arith_encode(self.test_data)
+        self.result +%= self.encoded.data.len() as u32
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}
+
+struct BitInputStream {
+    bytes: Vec<u8>
+    byte_pos: i64
+    bit_pos: i64
+    current_byte: u8
+}
+
+impl BitInputStream {
+    fn new(bytes: Vec<u8>) -> BitInputStream {
+        let current_byte = if !bytes.is_empty() { bytes[0] } else { 0 }
+        BitInputStream { bytes: bytes, byte_pos: 0, bit_pos: 0, current_byte: current_byte }
+    }
+
+    fn read_bit(&mut self) -> i64 {
+        if self.bit_pos == 8 {
+            self.byte_pos += 1
+            self.bit_pos = 0
+            self.current_byte = if self.byte_pos < self.bytes.len() { self.bytes[self.byte_pos] } else { 0 }
+        }
+
+        let bit = ((self.current_byte >> (7 - self.bit_pos) as u8) & 1) as i64
+        self.bit_pos += 1
+        bit
+    }
+}
+
+fn arith_decode(encoded: ArithEncodedResult) -> Vec<u8> {
+    let frequencies = encoded.frequencies
+    let total = frequencies.sum()
+    let data_size = total
+
+    let mut low_table: [i64; 256] = [0; 256]
+    let mut high_table: [i64; 256] = [0; 256]
+    let mut cum = 0
+    for i in 0..256 {
+        low_table[i] = cum
+        cum += frequencies[i]
+        high_table[i] = cum
+    }
+
+    let mut result: Vec<u8> = #[0; data_size]
+    let mut input = BitInputStream::new(encoded.data)
+
+    let mut value: i64 = 0
+    for _ in 0..32 { value = (value << 1) | input.read_bit() }
+
+    let mut low: i64 = 0
+    let mut high: i64 = 0xFFFFFFFF
+
+    for j in 0..data_size {
+        let range = high - low + 1
+        let scaled = ((value - low + 1) * total - 1) / range
+
+        let mut lo = 0
+        let mut hi = 256
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if high_table[mid] <= scaled { lo = mid + 1 } else { hi = mid }
+        }
+        let symbol = lo
+        result[j] = symbol as u8
+
+        high = low + (range * high_table[symbol] / total) - 1
+        low = low + (range * low_table[symbol] / total)
+
+        loop {
+            if high >= 0x80000000 && low < 0x80000000 && (low < 0x40000000 || high >= 0xC0000000) {
+                break
+            }
+
+            if high < 0x80000000 {
+            } else if low >= 0x80000000 {
+                value -= 0x80000000
+                low -= 0x80000000
+                high -= 0x80000000
+            } else if low >= 0x40000000 && high < 0xC0000000 {
+                value -= 0x40000000
+                low -= 0x40000000
+                high -= 0x40000000
+            }
+
+            low <<= 1
+            high = (high << 1) | 1
+            value = (value << 1) | input.read_bit()
+        }
+    }
+
+    result
+}
+
+pub struct ArithDecode {
+    size_val: i64
+    result: u32
+    test_data: Vec<u8>
+    decoded: Vec<u8>
+    encoded: ArithEncodedResult
+}
+
+impl ArithDecode {
+    pub fn new(cfg: Config) -> ArithDecode {
+        ArithDecode {
+            size_val: cfg.int("Compress::ArithDecode", "size")
+            result: 0
+            test_data: #[]
+            decoded: #[]
+            encoded: ArithEncodedResult::new()
+        }
+    }
+}
+
+impl Bench for ArithDecode {
+    fn prepare(&mut self) {
+        self.test_data = generate_test_data(self.size_val)
+
+        let mut encoder = ArithEncode::with_size(self.size_val)
+        encoder.prepare()
+
+        encoder.test_data = self.test_data
+        encoder.run(0)
+
+        self.encoded = encoder.encoded
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.decoded = arith_decode(self.encoded)
+        self.result +%= self.decoded.len() as u32
+    }
+
+    fn checksum(&self) -> u32 {
+        let mut res = self.result
+        if self.decoded == self.test_data { res +%= 100_000 }
+        res
+    }
+}
+
+struct LzwResult {
+    data: Vec<u8>
+}
+
+impl LzwResult {
+    fn new() -> LzwResult { LzwResult { data: #[] } }
+}
+
+pub struct LzwEncode {
+    size_val: i64
+    result: u32
+    test_data: Vec<u8>
+    encoded: LzwResult
+}
+
+impl LzwEncode {
+    pub fn new(cfg: Config) -> LzwEncode { LzwEncode::with_size(cfg.int("Compress::LZWEncode", "size")) }
+
+    fn with_size(size_val: i64) -> LzwEncode {
+        LzwEncode { size_val: size_val, result: 0, test_data: #[], encoded: LzwResult::new() }
+    }
+
+    fn lzw_encode(&self, input: [u8]) -> LzwResult {
+        if input.is_empty() { return LzwResult::new() }
+
+        let mut dict: Map<String, i64> = Map::with_capacity(4096)
+        for i in 0..256 { dict.insert((i as u8 as char).to_string(), i) }
+
+        let mut next_code = 256
+
+        let mut result: Vec<u8> = Vec::with_capacity(input.len() * 2)
+
+        let mut current = (input[0] as char).to_string()
+
+        for i in 1..input.len() {
+            let next_char_str = (input[i] as char).to_string()
+            let new_str = current + next_char_str
+
+            if dict.contains_key(new_str) {
+                current = new_str
+            } else {
+                let code = dict.get_or(current, 0)
+                result.push(((code >> 8) & 0xFF) as u8)
+                result.push((code & 0xFF) as u8)
+
+                dict.insert(new_str, next_code)
+                next_code += 1
+                current = next_char_str
+            }
+        }
+
+        let code = dict.get_or(current, 0)
+        result.push(((code >> 8) & 0xFF) as u8)
+        result.push((code & 0xFF) as u8)
+
+        LzwResult { data: result }
+    }
+}
+
+impl Bench for LzwEncode {
+    fn prepare(&mut self) { self.test_data = generate_test_data(self.size_val) }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.encoded = self.lzw_encode(self.test_data)
+        self.result +%= self.encoded.data.len() as u32
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}
+
+fn lzw_decode(encoded: LzwResult) -> Vec<u8> {
+    if encoded.data.is_empty() { return #[] }
+
+    let mut dict: Vec<String> = Vec::with_capacity(4096)
+    for i in 0..256 { dict.push((i as u8 as char).to_string()) }
+
+    let mut result: Vec<u8> = Vec::with_capacity(encoded.data.len() * 2)
+    let data = encoded.data
+    let mut pos = 0
+
+    let high = data[pos] as i64
+    let low = data[pos + 1] as i64
+    let old_code = (high << 8) | low
+    pos += 2
+
+    let mut old_str = dict[old_code]
+    result.extend_from_slice(old_str.as_bytes())
+
+    let mut next_code = 256
+
+    while pos < data.len() {
+        let high = data[pos] as i64
+        let low = data[pos + 1] as i64
+        let new_code = (high << 8) | low
+        pos += 2
+
+        let new_str = if new_code < dict.len() {
+            dict[new_code]
+        } else if new_code == next_code {
+            old_str + old_str.substring(0, 1)
+        } else {
+            return #[]
+        }
+
+        result.extend_from_slice(new_str.as_bytes())
+
+        dict.push(old_str + new_str.substring(0, 1))
+        next_code += 1
+
+        old_str = new_str
+    }
+
+    result
+}
+
+pub struct LzwDecode {
+    size_val: i64
+    result: u32
+    test_data: Vec<u8>
+    decoded: Vec<u8>
+    encoded: LzwResult
+}
+
+impl LzwDecode {
+    pub fn new(cfg: Config) -> LzwDecode {
+        LzwDecode {
+            size_val: cfg.int("Compress::LZWDecode", "size")
+            result: 0
+            test_data: #[]
+            decoded: #[]
+            encoded: LzwResult::new()
+        }
+    }
+}
+
+impl Bench for LzwDecode {
+    fn prepare(&mut self) {
+        self.test_data = generate_test_data(self.size_val)
+
+        let mut encoder = LzwEncode::with_size(self.size_val)
+        encoder.prepare()
+        encoder.run(0)
+
+        self.encoded = encoder.encoded
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.decoded = lzw_decode(self.encoded)
+        self.result +%= self.decoded.len() as u32
+    }
+
+    fn checksum(&self) -> u32 {
+        let mut res = self.result
+        if self.decoded == self.test_data { res +%= 100_000 }
+        res
+    }
+}

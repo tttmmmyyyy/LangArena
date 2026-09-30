@@ -1,0 +1,324 @@
+use bench::Bench
+use config::Config
+use helper
+
+const CHAR_EOF: u8 = 0
+
+pub enum Node {
+    Number(i64)
+    Variable(String)
+    BinaryOp(char, Node, Node)
+    Assignment(String, Node)
+}
+
+pub struct CalculatorAst {
+    n: i64
+    result: u32
+    text: String
+    expressions: Vec<Node>
+    rng: helper::Rng
+}
+
+impl CalculatorAst {
+    pub fn new(cfg: Config) -> CalculatorAst {
+        CalculatorAst::with_operations(cfg.int("Calculator::Ast", "operations"))
+    }
+
+    fn with_operations(n: i64) -> CalculatorAst {
+        CalculatorAst { n: n, result: 0, text: "", expressions: #[], rng: helper::Rng::new() }
+    }
+
+    pub fn expressions(&self) -> Vec<Node> { self.expressions }
+
+    fn generate_random_program(&mut self, n: i64) -> String {
+        let mut result = String::new()
+        result.push_str("v0 = 1\n")
+
+        for i in 0..10 {
+            let v = i + 1
+            result.push_str(format("v{} = v{} + {}\n", v, v - 1, v))
+        }
+
+        for i in 0..n {
+            let v = i + 10
+            result.push_str(format("v{} = v{} + ", v, v - 1))
+
+            match self.rng.next_int(10) {
+                0 => result.push_str(format(
+                    "(v{} / 3) * 4 - {} / (3 + (18 - v{})) % v{} + 2 * ((9 - v{}) * (v{} + 7))"
+                    v - 1, i, v - 2, v - 3, v - 6, v - 5))
+                1 => result.push_str(format("v{} + (v{} + v{}) * v{} - (v{} / v{})"
+                    v - 1, v - 2, v - 3, v - 4, v - 5, v - 6))
+                2 => result.push_str(format("(3789 - (((v{})))) + 1", v - 7))
+                3 => result.push_str(format("4/2 * (1-3) + v{}/v{}", v - 9, v - 5))
+                4 => result.push_str(format("1+2+3+4+5+6+v{}", v - 1))
+                5 => result.push_str(format("(99999 / v{})", v - 3))
+                6 => result.push_str(format("0 + 0 - v{}", v - 8))
+                7 => result.push_str(format("((((((((((v{})))))))))) * 2", v - 6))
+                8 => result.push_str(format("{} * (v{}%6)%7", i, v - 1))
+                9 => result.push_str(format("(1)/(0-v{}) + (v{})", v - 5, v - 7))
+                _ => unreachable()
+            }
+
+            result.push_char('\n')
+        }
+
+        result
+    }
+}
+
+impl Bench for CalculatorAst {
+    fn prepare(&mut self) { self.text = self.generate_random_program(self.n) }
+
+    fn run(&mut self, iteration_id: i64) {
+        self.expressions = Parser::new(self.text).parse()
+        self.result +%= self.expressions.len() as u32
+
+        if let Some(Node::Assignment(var, _)) = self.expressions.last() {
+            self.result +%= helper::checksum_str(var)
+        }
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}
+
+struct Parser {
+    input: String
+    pos: i64
+    len: i64
+    current_byte: u8
+    expressions: Vec<Node>
+}
+
+impl Parser {
+    fn new(input: String) -> Parser {
+        let len = input.byte_len()
+        let current_byte = if len > 0 { input.byte_at(0) as u8 } else { CHAR_EOF }
+        Parser { input: input, pos: 0, len: len, current_byte: current_byte, expressions: #[] }
+    }
+
+    fn parse(&mut self) -> Vec<Node> {
+        while self.current_byte != CHAR_EOF {
+            self.skip_whitespace()
+            if self.current_byte == CHAR_EOF { break }
+
+            let expr = self.parse_expression()
+            self.expressions.push(expr)
+
+            self.skip_whitespace()
+            while self.current_byte == b'\n' {
+                self.advance()
+                self.skip_whitespace()
+            }
+        }
+
+        self.expressions
+    }
+
+    fn parse_expression(&mut self) -> Node {
+        let node = self.parse_term()
+        self.parse_expression_rest(node)
+    }
+
+    fn parse_expression_rest(&mut self, left_node: Node) -> Node {
+        let mut current_node = left_node
+
+        loop {
+            self.skip_whitespace()
+
+            if self.current_byte == b'+' || self.current_byte == b'-' {
+                let op = self.current_byte as char
+                self.advance()
+                let right = self.parse_term()
+                current_node = Node::BinaryOp(op, current_node, right)
+            } else {
+                break
+            }
+        }
+
+        current_node
+    }
+
+    fn parse_term(&mut self) -> Node {
+        let node = self.parse_factor()
+        self.parse_term_rest(node)
+    }
+
+    fn parse_term_rest(&mut self, left_node: Node) -> Node {
+        let mut current_node = left_node
+
+        loop {
+            self.skip_whitespace()
+
+            if self.current_byte == b'*' || self.current_byte == b'/' || self.current_byte == b'%' {
+                let op = self.current_byte as char
+                self.advance()
+                let right = self.parse_factor()
+                current_node = Node::BinaryOp(op, current_node, right)
+            } else {
+                break
+            }
+        }
+
+        current_node
+    }
+
+    fn parse_factor(&mut self) -> Node {
+        self.skip_whitespace()
+
+        if self.is_digit(self.current_byte) {
+            self.parse_number()
+        } else if self.is_letter(self.current_byte) {
+            self.parse_variable()
+        } else if self.current_byte == b'(' {
+            self.advance()
+            let node = self.parse_expression()
+            self.skip_whitespace()
+            if self.current_byte == b')' { self.advance() }
+            node
+        } else {
+            self.advance()
+            Node::Number(0)
+        }
+    }
+
+    fn parse_number(&mut self) -> Node {
+        let start = self.pos
+        while self.is_digit(self.current_byte) { self.advance() }
+
+        match self.input.substring(start, self.pos).to_i64() {
+            Some(n) => Node::Number(n)
+            None => Node::Number(0)
+        }
+    }
+
+    fn parse_variable(&mut self) -> Node {
+        let start = self.pos
+        while self.is_letter(self.current_byte) || self.is_digit(self.current_byte) {
+            self.advance()
+        }
+
+        let var_name = self.input.substring(start, self.pos)
+
+        self.skip_whitespace()
+        if self.current_byte == b'=' {
+            self.advance()
+            let expr = self.parse_expression()
+            return Node::Assignment(var_name, expr)
+        }
+
+        Node::Variable(var_name)
+    }
+
+    fn advance(&mut self) {
+        self.pos += 1
+        if self.pos >= self.len {
+            self.current_byte = CHAR_EOF
+        } else {
+            self.current_byte = self.input.byte_at(self.pos) as u8
+        }
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self.is_whitespace(self.current_byte) { self.advance() }
+    }
+
+    fn is_digit(&self, byte: u8) -> bool { byte >= b'0' && byte <= b'9' }
+
+    fn is_letter(&self, byte: u8) -> bool {
+        (byte >= b'a' && byte <= b'z') || (byte >= b'A' && byte <= b'Z')
+    }
+
+    fn is_whitespace(&self, byte: u8) -> bool {
+        byte == b' ' || byte == b'\t' || byte == b'\n' || byte == b'\r'
+    }
+}
+
+fn magnitude(x: i64) -> i64 { if x < 0 { x *% -1 } else { x } }
+
+pub struct CalculatorInterpreter {
+    n: i64
+    ast: Vec<Node>
+    result: u32
+}
+
+impl CalculatorInterpreter {
+    pub fn new(cfg: Config) -> CalculatorInterpreter {
+        CalculatorInterpreter {
+            n: cfg.int("Calculator::Interpreter", "operations")
+            ast: #[]
+            result: 0
+        }
+    }
+
+    fn simple_div(a: i64, b: i64) -> i64 {
+        if b == 0 { return 0 }
+
+        if (a >= 0 && b > 0) || (a < 0 && b < 0) {
+            a / b
+        } else {
+            -(magnitude(a) / magnitude(b))
+        }
+    }
+
+    fn simple_mod(a: i64, b: i64) -> i64 {
+        if b == 0 { return 0 }
+        a -% CalculatorInterpreter::simple_div(a, b) *% b
+    }
+}
+
+struct Interpreter {
+    variables: Map<String, i64>
+}
+
+impl Interpreter {
+    fn new() -> Interpreter { Interpreter { variables: Map::new() } }
+
+    fn evaluate(&mut self, node: Node) -> i64 {
+        match node {
+            Node::Number(n) => n
+            Node::Variable(name) => self.variables.get_or(name, 0)
+            Node::BinaryOp(op, left, right) => {
+                let left_val = self.evaluate(left)
+                let right_val = self.evaluate(right)
+
+                match op {
+                    '+' => left_val +% right_val
+                    '-' => left_val -% right_val
+                    '*' => left_val *% right_val
+                    '/' => CalculatorInterpreter::simple_div(left_val, right_val)
+                    '%' => CalculatorInterpreter::simple_mod(left_val, right_val)
+                    _ => 0
+                }
+            }
+            Node::Assignment(var, expr) => {
+                let value = self.evaluate(expr)
+                self.variables.insert(var, value)
+                value
+            }
+        }
+    }
+
+    fn run(&mut self, expressions: [Node]) -> i64 {
+        let mut result = 0
+        for expr in expressions { result = self.evaluate(expr) }
+        result
+    }
+}
+
+impl Bench for CalculatorInterpreter {
+    fn prepare(&mut self) {
+        let mut ast_bench = CalculatorAst::with_operations(self.n)
+        ast_bench.prepare()
+        ast_bench.run(0)
+        self.ast = ast_bench.expressions()
+    }
+
+    fn run(&mut self, iteration_id: i64) {
+        let mut interpreter = Interpreter::new()
+        let result = interpreter.run(self.ast)
+        self.result +%= result as u32
+    }
+
+    fn checksum(&self) -> u32 { self.result }
+}

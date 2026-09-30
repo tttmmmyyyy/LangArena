@@ -1,0 +1,70 @@
+use std::encoding::base64
+use bench::Bench
+use config::Config
+use helper
+
+pub struct Base64Encode {
+    source: Vec<u8>
+    plain: String
+    encoded: String
+    result: u32
+}
+
+impl Base64Encode {
+    pub fn new(cfg: Config) -> Base64Encode {
+        let plain = "a".repeat(cfg.int("Base64::Encode", "size"))
+        Base64Encode {
+            source: plain.as_bytes()
+            plain: plain
+            encoded: base64::encode(plain.as_bytes())
+            result: 0
+        }
+    }
+}
+
+fn head(text: String) -> String {
+    if text.byte_len() > 4 { format("{}...", text.substring(0, 4)) } else { text }
+}
+
+impl Bench for Base64Encode {
+    fn run(&mut self, iteration_id: i64) {
+        self.encoded = base64::encode(self.source)
+        self.result +%= self.encoded.byte_len() as u32
+    }
+
+    fn checksum(&self) -> u32 {
+        helper::checksum_str(format("encode {} to {}: {}"
+            head(self.plain), head(self.encoded), self.result))
+    }
+}
+
+pub struct Base64Decode {
+    encoded: String
+    decoded: Vec<u8>
+    result: u32
+}
+
+impl Base64Decode {
+    pub fn new(cfg: Config) -> Base64Decode {
+        let encoded = base64::encode("a".repeat(cfg.int("Base64::Decode", "size")).as_bytes())
+        Base64Decode {
+            encoded: encoded
+            decoded: base64::decode(encoded).unwrap_or(#[])
+            result: 0
+        }
+    }
+}
+
+impl Bench for Base64Decode {
+    fn run(&mut self, iteration_id: i64) {
+        self.decoded = base64::decode(self.encoded).unwrap_or(#[])
+        self.result +%= self.decoded.len() as u32
+    }
+
+    fn checksum(&self) -> u32 {
+        let mut prefix = String::new()
+        for i in 0..4 { prefix.push_char(self.decoded[i] as char) }
+        helper::checksum_str(format("decode {} to {}...: {}"
+            head(self.encoded), prefix, self.result))
+    }
+}

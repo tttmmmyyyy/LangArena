@@ -1,3 +1,7 @@
+import Base: push!, pop!, isempty
+
+using DataStructures: BinaryMinHeap
+
 @enum CellKind begin
     WALL = 0
     SPACE = 1
@@ -60,16 +64,10 @@ function Maze(width::Int, height::Int)
 end
 
 function update_neighbors(maze::Maze)
-
-    for y = 1:maze.height
-        for x = 1:maze.width
-            empty!(maze.cells[y, x].neighbors)
-        end
-    end
-
     for y = 1:maze.height
         for x = 1:maze.width
             cell = maze.cells[y, x]
+            empty!(cell.neighbors)
 
             if x > 1 && y > 1 && x < maze.width && y < maze.height
                 add_neighbor(cell, maze.cells[y-1, x])
@@ -80,7 +78,7 @@ function update_neighbors(maze::Maze)
                 for _ = 1:4
                     i = Helper.next_int(4) + 1
                     j = Helper.next_int(4) + 1
-                    if i != j && i <= length(cell.neighbors) && j <= length(cell.neighbors)
+                    if i != j
                         cell.neighbors[i], cell.neighbors[j] =
                             cell.neighbors[j], cell.neighbors[i]
                     end
@@ -104,6 +102,7 @@ end
 
 function dig(maze::Maze, start_cell::Cell)
     stack = Cell[]
+    sizehint!(stack, maze.width * maze.height)
     push!(stack, start_cell)
 
     while !isempty(stack)
@@ -130,30 +129,23 @@ function dig(maze::Maze, start_cell::Cell)
     end
 end
 
-function ensure_open_finish(maze::Maze, start_cell::Cell)
-    stack = Cell[]
-    push!(stack, start_cell)
+function ensure_open_finish(maze::Maze, cell::Cell)
+    cell.kind = SPACE
 
-    while !isempty(stack)
-        cell = pop!(stack)
-
-        cell.kind = SPACE
-
-        walkable = 0
-        for n in cell.neighbors
-            if is_walkable(n.kind)
-                walkable += 1
-            end
+    walkable = 0
+    for n in cell.neighbors
+        if is_walkable(n.kind)
+            walkable += 1
         end
+    end
 
-        if walkable > 1
-            continue
-        end
+    if walkable > 1
+        return
+    end
 
-        for n in cell.neighbors
-            if n.kind == WALL
-                push!(stack, n)
-            end
+    for n in cell.neighbors
+        if n.kind == WALL
+            ensure_open_finish(maze, n)
         end
     end
 end
@@ -224,13 +216,13 @@ end
 function MazeGenerator()
     width = Helper.config_i64("Maze::Generator", "w")
     height = Helper.config_i64("Maze::Generator", "h")
-    return MazeGenerator(width, height, nothing, UInt32(0))
+    m = Maze(width, height)
+    return MazeGenerator(width, height, m, UInt32(0))
 end
 
 name(b::MazeGenerator)::String = "Maze::Generator"
 
 function prepare(b::MazeGenerator)
-    b.maze = Maze(b.width, b.height)
     b.result_val = UInt32(0)
 end
 
@@ -268,13 +260,13 @@ end
 function MazeBFS()
     width = Helper.config_i64("Maze::BFS", "w")
     height = Helper.config_i64("Maze::BFS", "h")
-    return MazeBFS(width, height, nothing, UInt32(0), Cell[])
+    m = Maze(width, height)
+    return MazeBFS(width, height, m, UInt32(0), Cell[])
 end
 
 name(b::MazeBFS)::String = "Maze::BFS"
 
 function prepare(b::MazeBFS)
-    b.maze = Maze(b.width, b.height)
     generate(b.maze)
     b.result_val = UInt32(0)
     b.path = Cell[]
@@ -339,8 +331,6 @@ function checksum(b::MazeBFS)::UInt32
     return b.result_val + mid_cell_checksum(b.path)
 end
 
-using DataStructures: BinaryMinHeap
-
 mutable struct MazeAStar <: AbstractBenchmark
     width::Int64
     height::Int64
@@ -352,13 +342,13 @@ end
 function MazeAStar()
     width = Helper.config_i64("Maze::AStar", "w")
     height = Helper.config_i64("Maze::AStar", "h")
-    return MazeAStar(width, height, nothing, UInt32(0), Cell[])
+    m = Maze(width, height)
+    return MazeAStar(width, height, m, UInt32(0), Cell[])
 end
 
 name(b::MazeAStar)::String = "Maze::AStar"
 
 function prepare(b::MazeAStar)
-    b.maze = Maze(b.width, b.height)
     generate(b.maze)
     b.result_val = UInt32(0)
     b.path = Cell[]
@@ -389,21 +379,15 @@ function astar(maze::Maze, start::Cell, target::Cell)::Vector{Cell}
     target_idx = target.y * width + target.x + 1
 
     open_set = BinaryMinHeap{Tuple{Int32,Int64}}()
-    in_open = falses(size)
 
     g_score[start_idx] = 0
     f_start = heuristic(start, target)
     push!(open_set, (f_start, start_idx))
     best_f[start_idx] = f_start
-    in_open[start_idx] = true
 
     while !isempty(open_set)
-        f_val, current_idx = pop!(open_set)
-        in_open[current_idx] = false
-
-        if f_val != best_f[current_idx]
-            continue
-        end
+        entry = pop!(open_set)
+        current_idx = entry[2]
 
         if current_idx == target_idx
             result = Cell[]
@@ -437,13 +421,7 @@ function astar(maze::Maze, start::Cell, target::Cell)::Vector{Cell}
 
                 if f_new < best_f[neighbor_idx]
                     best_f[neighbor_idx] = f_new
-                    if in_open[neighbor_idx]
-
-                        push!(open_set, (f_new, neighbor_idx))
-                    else
-                        push!(open_set, (f_new, neighbor_idx))
-                        in_open[neighbor_idx] = true
-                    end
+                    push!(open_set, (f_new, neighbor_idx))
                 end
             end
         end
