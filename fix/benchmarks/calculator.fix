@@ -78,6 +78,20 @@ _generate_program = |n, rng| (
 _is_space : U8 -> Bool;
 _is_space = |byte| byte == ' ' || byte == '\n' || byte == '\t' || byte == '\r';
 
+// Whether a byte is a decimal digit.
+//
+// # Parameters
+// * `byte` - The byte to test.
+_is_digit : U8 -> Bool;
+_is_digit = |byte| byte >= '0' && byte <= '9';
+
+// Whether a byte is an ASCII letter, which is what a variable name starts with.
+//
+// # Parameters
+// * `byte` - The byte to test.
+_is_letter : U8 -> Bool;
+_is_letter = |byte| (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z');
+
 // The first position at or after `from` that does not hold a space.
 //
 // # Parameters
@@ -88,7 +102,8 @@ _skip_spaces = |text, from| (
     loop(from, |i| if i < text.@size && _is_space(text.@(i)) { continue $ i + 1 } else { break $ i })
 );
 
-// Reads a number, a variable, an assignment, or a parenthesized expression.
+// Reads a number, a variable, an assignment, or a parenthesized expression. Any other byte reads as
+// the number 0 and is passed over.
 //
 // # Parameters
 // * `text` - The program text.
@@ -98,18 +113,18 @@ _parse_factor = |text, from| (
     let i = _skip_spaces(text, from);
     if i >= text.@size { (number(0), i) };
     let byte = text.@(i);
-    if byte >= '0' && byte <= '9' {
+    if _is_digit(byte) {
         let end = loop(i, |j|
-            if j < text.@size && text.@(j) >= '0' && text.@(j) <= '9' { continue $ j + 1 } else { break $ j }
+            if j < text.@size && _is_digit(text.@(j)) { continue $ j + 1 } else { break $ j }
         );
         let value = range(i, end).fold(0, |j, value| value * 10 + (text.@(j) - '0').i64);
         (number(value), end)
     };
-    if byte >= 'a' && byte <= 'z' {
+    if _is_letter(byte) {
         let end = loop(i, |j|
             if j >= text.@size { break $ j };
             let b = text.@(j);
-            if (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') { continue $ j + 1 } else { break $ j }
+            if _is_letter(b) || _is_digit(b) { continue $ j + 1 } else { break $ j }
         );
         let name = text.get_sub(i, end);
         let after = _skip_spaces(text, end);
@@ -125,7 +140,7 @@ _parse_factor = |text, from| (
         if next < text.@size && text.@(next) == ')' { (inner, next + 1) };
         (inner, next)
     };
-    (number(0), i)
+    (number(0), i + 1)
 );
 
 // Reads a factor and every multiplication, division and remainder that follows it.
