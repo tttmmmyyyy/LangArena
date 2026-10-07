@@ -125,7 +125,7 @@ _placeholder : String = "\\{\\{([^}]*)\\}\\}";
 _render_regexp : RegExp -> Template -> Array U8;
 _render_regexp = |regexp, template| (
     let (text, values) = (template.@text, template.@values);
-    let (rendered, last) = regexp.find_all(text).to_iter.fold(
+    let (rendered, last) = regexp.find_all(text).fold(
         (Array::empty(text.@size * 3 / 2), 0), |groups, (rendered, last)|
         let (begin, end) = groups.@(0);
         let (name_begin, name_end) = groups.@(1);

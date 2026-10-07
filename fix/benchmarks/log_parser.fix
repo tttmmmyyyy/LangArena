@@ -6,7 +6,7 @@ import LangArena.Helper::{append_str, bytes_of, config_i64, string_of};
 import RegExp::{RegExp, RegExp::{compile, find_all}};
 import Std::{
     loop, Array, I64, String, U32, U8, Array::{empty, from_map, push_back, to_iter, @, @size}, 
-    Functor::map, Iterator::{fold, map, range, sum}, LoopState::{break, continue}, Result::as_ok, 
+    Functor::map, Iterator::{fold, get_size, map, range, sum}, LoopState::{break, continue}, Result::as_ok, 
     ToString::to_string, ToU32::u32
 };
 
@@ -135,7 +135,7 @@ _generate_log = |lines| range(0, lines).fold(Array::empty(lines * 200), |i, log|
 // * `log` - The log to search.
 _count_matches : Array RegExp -> Array U8 -> I64;
 _count_matches = |regexps, log| (
-    regexps.to_iter.fold(0, |regexp, total| total + regexp.find_all(log).@size)
+    regexps.to_iter.fold(0, |regexp, total| total + regexp.find_all(log).get_size)
 );
 
 // The benchmark holding the compiled patterns, the log, and the number of matches counted so far.
