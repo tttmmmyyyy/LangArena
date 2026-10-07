@@ -3,11 +3,10 @@ module LangArena.Benchmarks.LogParser;
 
 import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Helper::{append_str, bytes_of, config_i64, string_of};
-import RegExp::RegExp::{compile, @nfa};
-import RegExp.RegExpNFA::{NFA, NFA::search_all};
+import RegExp::{RegExp, RegExp::{compile, find_all}};
 import Std::{
     loop, Array, I64, String, U32, U8, Array::{empty, from_map, push_back, to_iter, @, @size}, 
-    Functor::map, Iterator::{fold, map, range, sum}, LoopState::{break, continue}, Result::as_ok, 
+    Functor::map, Iterator::{fold, get_size, map, range, sum}, LoopState::{break, continue}, Result::as_ok, 
     ToString::to_string, ToU32::u32
 };
 
@@ -132,22 +131,24 @@ _generate_log = |lines| range(0, lines).fold(Array::empty(lines * 200), |i, log|
 // pattern matches do not overlap: each search starts where the one before it ended.
 //
 // # Parameters
-// * `nfas` - The automata of the patterns.
+// * `regexps` - The patterns, compiled.
 // * `log` - The log to search.
-_count_matches : Array NFA -> Array U8 -> I64;
-_count_matches = |nfas, log| nfas.to_iter.fold(0, |nfa, total| total + nfa.search_all(log).@size);
+_count_matches : Array RegExp -> Array U8 -> I64;
+_count_matches = |regexps, log| (
+    regexps.to_iter.fold(0, |regexp, total| total + regexp.find_all(log).get_size)
+);
 
-// The benchmark holding the automata, the log, and the number of matches counted so far.
+// The benchmark holding the compiled patterns, the log, and the number of matches counted so far.
 //
 // # Parameters
-// * `nfas` - The automata of the patterns.
+// * `regexps` - The patterns, compiled.
 // * `log` - The log to search.
 // * `total` - The number of matches counted so far.
-_make_bench : Array NFA -> Array U8 -> U32 -> Bench;
-_make_bench = |nfas, log, total| Bench::make(
+_make_bench : Array RegExp -> Array U8 -> U32 -> Bench;
+_make_bench = |regexps, log, total| Bench::make(
     |iterations| (
-        let total = total + range(0, iterations).map(|_| _count_matches(nfas, log).u32).sum;
-        _make_bench(nfas, log, total)
+        let total = total + range(0, iterations).map(|_| _count_matches(regexps, log).u32).sum;
+        _make_bench(regexps, log, total)
     ),
     |_| total
 );
@@ -156,6 +157,6 @@ _make_bench = |nfas, log, total| Bench::make(
 // the measured run holds the searching alone.
 entry : (String, MakeBench);
 entry = (_name, |config, _|
-    let nfas = _patterns.map(|pattern| RegExp::compile(pattern, "g").as_ok.@nfa);
-    _make_bench(nfas, _generate_log(config.config_i64(_name, "lines_count")), 0_U32)
+    let regexps = _patterns.map(|pattern| RegExp::compile(pattern, "").as_ok);
+    _make_bench(regexps, _generate_log(config.config_i64(_name, "lines_count")), 0_U32)
 );
