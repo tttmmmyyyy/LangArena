@@ -4,8 +4,7 @@ module LangArena.Benchmarks.Template;
 import HashMap::{empty, find, insert, HashMap};
 import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Helper::{append_str, bytes_of, checksum_bytes, config_i64};
-import RegExp::RegExp::{compile, @nfa};
-import RegExp.RegExpNFA::{NFA, NFA::search_all};
+import RegExp::{RegExp, RegExp::{compile, find_all}};
 import Std::{
     loop, Array, Bool, I64, String, U32, U8, 
     Array::{append, empty, get_sub, push_back, to_iter, @, @size}, Iterator::{fold, range}, 
@@ -121,12 +120,12 @@ _placeholder : String = "\\{\\{([^}]*)\\}\\}";
 // match copied over at the end.
 //
 // # Parameters
-// * `nfa` - The automaton of `_placeholder`, group 1 of which is the name.
+// * `regexp` - `_placeholder` compiled, group 1 of which is the name.
 // * `template` - The page to fill and the values to fill it with.
-_render_regexp : NFA -> Template -> Array U8;
-_render_regexp = |nfa, template| (
+_render_regexp : RegExp -> Template -> Array U8;
+_render_regexp = |regexp, template| (
     let (text, values) = (template.@text, template.@values);
-    let (rendered, last) = nfa.search_all(text).to_iter.fold(
+    let (rendered, last) = regexp.find_all(text).to_iter.fold(
         (Array::empty(text.@size * 3 / 2), 0), |groups, (rendered, last)|
         let (begin, end) = groups.@(0);
         let (name_begin, name_end) = groups.@(1);
@@ -169,8 +168,7 @@ parse_entry = (_parse_name, |config, _|
 // The pattern is compiled once here, so that the measured run holds the searching alone.
 regexp_entry : (String, MakeBench);
 regexp_entry = (_regex_name, |config, _|
-    let nfa = RegExp::compile(_placeholder, "g").as_ok.@nfa;
-    _make_bench(
-        _render_regexp(nfa), _build(config.config_i64(_regex_name, "count")), Array::empty(0), 0_U32
-    )
+    let regexp = RegExp::compile(_placeholder, "").as_ok;
+    let template = _build(config.config_i64(_regex_name, "count"));
+    _make_bench(_render_regexp(regexp), template, Array::empty(0), 0_U32)
 );
