@@ -990,7 +990,7 @@ services:
       dockerfile: docker/fix
       args:
         # https://github.com/tttmmmyyyy/fixlang/releases
-        version: v1.5.0
+        version: v1.6.0-alpha.1
     volumes:
       - .:/src
 
