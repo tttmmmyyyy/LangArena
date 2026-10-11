@@ -4,7 +4,7 @@ module LangArena.Benchmarks.Template;
 import HashMap::{empty, find, insert, HashMap};
 import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Helper::{append_str, bytes_of, checksum_bytes, config_i64};
-import RegExp::{RegExp, RegExp::{compile, find_all}};
+import RegExp::{RegExp, RegExp::{compile, find_all_in_bytes}};
 import Std::{
     loop, Array, Bool, I64, String, U32, U8, 
     Array::{append, empty, get_sub, push_back, to_iter, @, @size}, Iterator::{fold, range}, 
@@ -125,7 +125,7 @@ _placeholder : String = "\\{\\{([^}]*)\\}\\}";
 _render_regexp : RegExp -> Template -> Array U8;
 _render_regexp = |regexp, template| (
     let (text, values) = (template.@text, template.@values);
-    let (rendered, last) = regexp.find_all(text).fold(
+    let (rendered, last) = regexp.find_all_in_bytes(text).fold(
         (Array::empty(text.@size * 3 / 2), 0), |groups, (rendered, last)|
         let (begin, end) = groups.@(0);
         let (name_begin, name_end) = groups.@(1);
