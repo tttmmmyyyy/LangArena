@@ -7,12 +7,12 @@ import LangArena.Benchmarks.JsonDecode::read_points;
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
 import Math::round;
 import Std.Experimental::{
-    Array::with_separator, Format, F64::with_precision, Format::{write_text, TextOut}, String::format
+    Format, F64::with_precision, Format::{write_text, TextOut}, Iterator::joined_with, String::format, TextWriter
 };
 import Std::{
-    Array, Bool, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back}, Functor::map, 
-    Iterator::{fold, map, range, sum}, Option::{as_some, some}, Result::as_ok, String::find, 
-    ToF64::f64, Tuple3::{@0, @1, @2}
+    Array, Bool, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back, to_iter}, Functor::map, 
+    Iterator::{fold, fold_m, map, range, sum}, Monad, Monad::{bind, pure}, Option::{as_some, some}, 
+    Result::as_ok, String::find, ToF64::f64, Tuple3::{@0, @1, @2}
 };
 
 _generate_name : String = "Json::Generate";
@@ -41,12 +41,17 @@ type Document = unbox struct { coordinates : Array Coordinate, info : String };
 // serializer derived from the struct writes them.
 impl Coordinate : Format {
     write_text = |c, out| (
-        out.write_text("{\"x\":").write_text(c.@x)
-            .write_text(",\"y\":").write_text(c.@y)
-            .write_text(",\"z\":").write_text(c.@z)
-            .write_text(",\"name\":").write_text(Json::string(c.@name))
-            .write_text(",\"opts\":")._write_options(c.@opts)
-            .write_text("}")
+        let out = *out.write_text("{\"x\":");
+        let out = *out.write_text(c.@x);
+        let out = *out.write_text(",\"y\":");
+        let out = *out.write_text(c.@y);
+        let out = *out.write_text(",\"z\":");
+        let out = *out.write_text(c.@z);
+        let out = *out.write_text(",\"name\":");
+        let out = *out.write_text(Json::string(c.@name));
+        let out = *out.write_text(",\"opts\":");
+        let out = *out._write_options(c.@opts);
+        out.write_text("}")
     );
 }
 
@@ -55,24 +60,32 @@ impl Coordinate : Format {
 // # Parameters
 // * `options` - The table to write.
 // * `out` - The text written so far.
-_write_options : Array (String, (I64, Bool)) -> TextOut -> TextOut;
+_write_options : [m : Monad, m : TextWriter] Array (String, (I64, Bool)) -> TextOut -> m TextOut;
 _write_options = |options, out| (
-    let out = range(0, options.@size).fold(out.write_text("{"), |i, out|
+    let out = *out.write_text("{");
+    let out = *range(0, options.@size).fold_m(out, |i, out| (
         let (name, (number, flag)) = options.@(i);
-        let out = if i == 0 { out } else { out.write_text(",") };
-        out.write_text(Json::string(name)).write_text(":[").write_text(number).write_text(",")
-            .write_text(flag).write_text("]")
-    );
+        let out = *(if i == 0 { pure(out) } else { out.write_text(",") });
+        let out = *out.write_text(Json::string(name));
+        let out = *out.write_text(":[");
+        let out = *out.write_text(number);
+        let out = *out.write_text(",");
+        let out = *out.write_text(flag);
+        out.write_text("]")
+    ));
     out.write_text("}")
 );
 
 // Writes the document as a JSON object.
 impl Document : Format {
     write_text = |d, out| (
-        out.write_text(_opening)
-            .write_text("[").write_text(d.@coordinates.with_separator(",")).write_text("]")
-            .write_text(",\"info\":").write_text(Json::string(d.@info))
-            .write_text("}")
+        let out = *out.write_text(_opening);
+        let out = *out.write_text("[");
+        let out = *out.write_text(d.@coordinates.to_iter.joined_with(","));
+        let out = *out.write_text("]");
+        let out = *out.write_text(",\"info\":");
+        let out = *out.write_text(Json::string(d.@info));
+        out.write_text("}")
     );
 }
 
