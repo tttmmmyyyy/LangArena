@@ -6,13 +6,11 @@ import LangArena.Bench::{make, Bench, MakeBench};
 import LangArena.Benchmarks.JsonDecode::read_points;
 import LangArena.Helper::{checksum_float, config_i64, next_float, next_int, Rng};
 import Math::round;
-import Std.Experimental::{
-    Format, F64::with_precision, Format::{write_text, TextOut}, Iterator::joined_with, String::format, TextWriter
-};
 import Std::{
-    Array, Bool, F64, I64, String, U32, U8, Array::{@, @size, empty, push_back, to_iter}, Functor::map, 
-    Iterator::{fold, fold_m, map, range, sum}, Monad, Monad::{bind, pure}, Option::{as_some, some}, 
-    Result::as_ok, String::find, ToF64::f64, Tuple3::{@0, @1, @2}
+    Array, Bool, F64, Format, I64, String, TextWriter, U32, U8, Array::{@, @size, empty, push_back, to_iter}, 
+    F64::with_precision, Format::{write_text, TextOut}, Functor::map, 
+    Iterator::{fold, fold_m, joined_with, map, range, sum}, Monad, Monad::{bind, pure}, Option::{as_some, some}, 
+    Result::as_ok, String::{find, format}, ToF64::f64, Tuple3::{@0, @1, @2}
 };
 
 _generate_name : String = "Json::Generate";

@@ -5,10 +5,9 @@ module LangArena.Benchmarks.CacheSimulation;
 import HashMap::{empty, erase, find, insert, HashMap};
 import LangArena.Bench::{Bench, MakeBench};
 import LangArena.Helper::{config_i64, next_int, Rng};
-import Std.Experimental::String::format;
 import Std::{
     Array, Bool, I64, String, U32, Add::add, Array::{fill, set, @}, Iterator::{fold, range}, 
-    Option::some, ToU32::u32, U32::shift_left
+    Option::some, String::format, ToU32::u32, U32::shift_left
 };
 
 _name : String = "Etc::CacheSimulation";
